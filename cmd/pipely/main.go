@@ -10,10 +10,10 @@ func main() {
 	rootCmd.AddCommand(initConfigCmd)
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(pipelineCmd)
+	rootCmd.AddCommand(listCmd)
 	configCmd.AddCommand(setCmd)
 	configCmd.AddCommand(syncCmd)
 	runCmd.AddCommand(allCmd)
-	pipelineCmd.AddCommand(listCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
