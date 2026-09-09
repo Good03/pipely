@@ -19,6 +19,45 @@ type Config struct {
 	PipelineIds []int  `json:"pipeline_ids"`
 }
 
+func InitConfig() {
+	path := GetConfigPath()
+	slog.Debug("Checking file existence", "path", path) // Example debug log
+
+	if !FileExists(path) {
+
+		slog.Info("Config does not exist, creating a config", "path", path)
+
+		var org string
+		fmt.Print("Enter your Azure DevOps organisation name: ")
+		fmt.Scan(&org)
+
+		var project string
+		fmt.Print("Enter your Azure DevOps Project name: ")
+		fmt.Scan(&project)
+
+		var pat string
+		fmt.Print("Enter Azure DevOps your PAT: ")
+		fmt.Scan(&pat)
+
+		config := Config{
+			Org:         org,
+			Project:     project,
+			PipelineIds: []int{73768, 73778},
+			PAT:         pat,
+			Repo:        "org",
+			Branch:      "test/pipely",
+		}
+		configJson, _ := json.MarshalIndent(config, "", "  ")
+
+		err := os.WriteFile(path, configJson, 0644)
+		if err != nil {
+			slog.Error("Failed to write config", "error", err)
+			os.Exit(1)
+		}
+	}
+	slog.Info("The config file already exists, you can modify it by running \"pipely config set\" command ")
+}
+
 func LoadConfig(path string) (Config, error) {
 	dataFromFile, err := os.ReadFile(path)
 	if err != nil {
@@ -29,21 +68,6 @@ func LoadConfig(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	return config, nil
-}
-
-func GetConfig(path string) (Config, error) {
-	config, err := LoadConfig(path)
-	if err != nil {
-		return Config{}, err
-	}
-
-	prettyJSON, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return Config{}, err
-	}
-	fmt.Println(string(prettyJSON))
-
 	return config, nil
 }
 
@@ -86,7 +110,6 @@ func UpdateConfigField(path string, field string, value string) error {
 		return fmt.Errorf("unknown field: %s", field)
 	}
 
-	// Save the updated configuration
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err
