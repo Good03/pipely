@@ -71,6 +71,16 @@ var runCmd = &cobra.Command{
 	},
 }
 
+var allCmd = &cobra.Command{
+	Use:   "all",
+	Short: "Runs all pipelines that are defined in config",
+	Run: func(cmd *cobra.Command, args []string) {
+		path := pipely.GetConfigPath()
+		config, _ := pipely.LoadConfig(path)
+		pipely.RunPipelines(config)
+	},
+}
+
 var setCmd = &cobra.Command{
 	Use:     "set",
 	Short:   "Set a configuration field",
@@ -111,6 +121,7 @@ func main() {
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(runCmd)
 	configCmd.AddCommand(setCmd)
+	runCmd.AddCommand(allCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)

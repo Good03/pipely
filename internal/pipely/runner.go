@@ -48,7 +48,7 @@ func RunPipelines(config Config) {
 
 			b, _ := io.ReadAll(resp.Body)
 
-			slog.Debug("Pipeline run response", "status", resp.Status, "body", string(b))
+			slog.Info("Pipeline run response", "status", resp.Status, "body", string(b))
 		})
 	}
 	wg.Wait()
