@@ -1,17 +1,27 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 
 	"github.com/Good03/pipely/internal/pipely"
 	"github.com/spf13/cobra"
 )
 
 var debugMode bool
+var configPath = pipely.GetConfigPath()
+var showConfigPath bool
 
 var rootCmd = &cobra.Command{
 	Use: "pipely",
+	Run: func(cmd *cobra.Command, args []string) {
+		if showConfigPath {
+			fmt.Println(configPath)
+			return
+		}
+	},
 }
 
 var runCmd = &cobra.Command{
@@ -19,9 +29,14 @@ var runCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	Example: "pipely run <pipelineId>",
 	Run: func(cmd *cobra.Command, args []string) {
-		path := pipely.GetConfigPath()
+		path := configPath
+
 		config, _ := pipely.LoadConfig(path)
-		pipelineId := args[0]
+		pipelineID, err := strconv.Atoi(args[0])
+		if err != nil {
+			slog.Error("Pipeline ID must be an integer", "value", args[0], "error", err)
+			os.Exit(1)
+		}
 
 		level := slog.LevelInfo
 		if debugMode {
@@ -30,7 +45,7 @@ var runCmd = &cobra.Command{
 		logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 		slog.SetDefault(logger)
 
-		pipely.RunPipeline(pipelineId, config)
+		pipely.RunPipeline(pipelineID, config)
 	},
 }
 
@@ -38,7 +53,7 @@ var allCmd = &cobra.Command{
 	Use:   "all",
 	Short: "Runs all pipelines that are defined in config",
 	Run: func(cmd *cobra.Command, args []string) {
-		path := pipely.GetConfigPath()
+		path := configPath
 		config, _ := pipely.LoadConfig(path)
 		pipely.RunPipelines(config)
 	},
@@ -60,7 +75,7 @@ var setCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		field := args[0]
 		value := args[1]
-		path := pipely.GetConfigPath()
+		path := configPath
 
 		if err := pipely.UpdateConfigField(path, field, value); err != nil {
 			slog.Error("Failed to update config", "error", err)
@@ -83,7 +98,7 @@ var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Sync pipelines between config and ADO",
 	Run: func(cmd *cobra.Command, args []string) {
-		path := pipely.GetConfigPath()
+		path := configPath
 		if err := pipely.SyncConfig(path); err != nil {
 			slog.Error("Failed to sync config", "error", err)
 			os.Exit(1)
@@ -101,7 +116,7 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List pipelines from config",
 	Run: func(cmd *cobra.Command, args []string) {
-		path := pipely.GetConfigPath()
+		path := configPath
 		if err := pipely.ListPipelines(path); err != nil {
 			slog.Error("Failed to list pipelines", "error", err)
 			os.Exit(1)
@@ -109,6 +124,17 @@ var listCmd = &cobra.Command{
 	},
 }
 
+var tuiCmd = &cobra.Command{
+	Use:   "tui",
+	Short: "Run pipely TUI",
+	Run: func(cmd *cobra.Command, args []string) {
+		path := configPath
+		config, _ := pipely.LoadConfig(path)
+		pipely.RunTui(config)
+	},
+}
+
 func init() {
+	rootCmd.Flags().BoolVar(&showConfigPath, "config-path", false, "Print the config file location")
 	rootCmd.PersistentFlags().BoolVarP(&debugMode, "debug", "d", false, "Enable debug mode")
 }

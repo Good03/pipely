@@ -6,16 +6,15 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 type Config struct {
-	Org         string   `json:"org"`
-	Project     string   `json:"project"`
-	PAT         string   `json:"pat"`
-	Repo        string   `json:"repo"`
-	Branch      string   `json:"branch"`
-	PipelineIds []string `json:"pipeline_ids"`
+	Org       string     `json:"org"`
+	Project   string     `json:"project"`
+	PAT       string     `json:"pat"`
+	Repo      string     `json:"repo"`
+	Branch    string     `json:"branch"`
+	Pipelines []Pipeline `json:"pipelines"`
 }
 
 func InitConfig() {
@@ -37,7 +36,6 @@ func InitConfig() {
 	fmt.Print("Enter Azure DevOps your PAT: ")
 	fmt.Scan(&pat)
 
-	// Fetch projects
 	projects, err := FetchProjects(org, pat)
 	if err != nil {
 		slog.Error("Failed to fetch projects", "error", err)
@@ -45,7 +43,6 @@ func InitConfig() {
 	}
 	selectedProject := SelectProject(projects)
 
-	// Fetch repos
 	repos, err := FetchRepos(org, selectedProject.Name, pat)
 	if err != nil {
 		slog.Error("Failed to fetch repos", "error", err)
@@ -53,7 +50,6 @@ func InitConfig() {
 	}
 	selectedRepo := SelectRepo(repos)
 
-	// Fetch pipelines
 	pipelines, err := FetchPipelines(org, selectedProject.Name, pat)
 	if err != nil {
 		slog.Error("Failed to fetch pipelines", "error", err)
@@ -61,18 +57,18 @@ func InitConfig() {
 	}
 	selectedPipelines := SelectPipelines(pipelines)
 
-	var pipelineIds []string
-	for _, p := range selectedPipelines {
-		pipelineIds = append(pipelineIds, p.Id)
+	var pipelinesToSave []Pipeline
+	for _, pipeline := range selectedPipelines {
+		pipelinesToSave = append(pipelinesToSave, pipeline)
 	}
 
 	config := Config{
-		Org:         org,
-		Project:     selectedProject.Name,
-		PAT:         pat,
-		Repo:        selectedRepo.Name,
-		Branch:      "main",
-		PipelineIds: pipelineIds,
+		Org:       org,
+		Project:   selectedProject.Name,
+		PAT:       pat,
+		Repo:      selectedRepo.Name,
+		Branch:    "main",
+		Pipelines: pipelinesToSave,
 	}
 
 	configJson, _ := json.MarshalIndent(config, "", "  ")
@@ -103,13 +99,19 @@ func PrintConfig() {
 	config, err := LoadConfig(path)
 	if err != nil {
 		slog.Error("Error while reading config", "error", err)
+		fmt.Println("Hint: run \"pipely init\" to create config file")
+		return
 	}
 
 	fmt.Printf("Org: %s\n", config.Org)
 	fmt.Printf("Project: %s\n", config.Project)
 	fmt.Printf("Repo: %s\n", config.Repo)
 	fmt.Printf("Branch: %s\n", config.Branch)
-	fmt.Printf("Pipeline Ids: %v", config.PipelineIds)
+	fmt.Printf("Pipelines:\n")
+	for _, pipeline := range config.Pipelines {
+		fmt.Printf("   - ID: %d\n", pipeline.Id)
+		fmt.Printf("     Name: %s\n", pipeline.Name)
+	}
 }
 
 func ListPipelines(path string) error {
@@ -119,8 +121,9 @@ func ListPipelines(path string) error {
 	}
 
 	fmt.Println("Pipelines defined in config:")
-	for _, id := range config.PipelineIds {
-		fmt.Printf("- ID: %s\n", id)
+	for _, pipeline := range config.Pipelines {
+		fmt.Printf("- ID: %d\n", pipeline.Id)
+		fmt.Printf("  Name: %s\n", pipeline.Name)
 	}
 	return nil
 }
@@ -137,11 +140,11 @@ func SyncConfig(path string) error {
 	}
 
 	selected := SelectPipelines(pipelines)
-	var newIds []string
-	for _, p := range selected {
-		newIds = append(newIds, p.Id)
+	var newPipelines []Pipeline
+	for _, pipeline := range selected {
+		newPipelines = append(newPipelines, pipeline)
 	}
-	config.PipelineIds = newIds
+	config.Pipelines = newPipelines
 
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
@@ -175,15 +178,17 @@ func UpdateConfigField(path string, field string, value string) error {
 		config.Repo = value
 	case "branch":
 		config.Branch = value
-	case "pipeline_ids":
-		parsedIds := strings.Split(value, ",")
-		var ids []string
-
-		for _, id := range parsedIds {
-			ids = append(ids, id)
-		}
-
-		config.PipelineIds = ids
+	//case "pipelines":
+	//	parsedIds := strings.Split(value, ",")
+	//	var pipelines []Pipeline
+	//
+	//	//TODO: Complete migration to Pipeline struct.
+	//
+	//	for _, pipeline := range parsedIds {
+	//		pipelines = append(pipelines, pipeline)
+	//	}
+	//
+	//	config.Pipelines = pipelines
 	default:
 		return fmt.Errorf("unknown field: %s", field)
 	}

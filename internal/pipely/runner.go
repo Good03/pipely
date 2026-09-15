@@ -12,21 +12,21 @@ import (
 )
 
 func RunPipelines(config Config) {
-	pipelineIds := config.PipelineIds
+	pipelines := config.Pipelines
 	var wg sync.WaitGroup
-	for _, pipelineId := range pipelineIds {
+	for _, pipeline := range pipelines {
 		wg.Add(1)
-		go func(id string) {
+		go func(id int) {
 			defer wg.Done()
 			RunPipeline(id, config)
-		}(pipelineId)
+		}(pipeline.Id)
 	}
 	wg.Wait()
 }
 
-func RunPipeline(pipelineId string, config Config) {
+func RunPipeline(pipelineId int, config Config) {
 	slog.Info("Starting pipeline", "pipelineID", pipelineId)
-	url := fmt.Sprintf("https://dev.azure.com/%s/%s/_apis/pipelines/%s/runs?api-version=7.1", config.Org, config.Project, pipelineId)
+	url := fmt.Sprintf("https://dev.azure.com/%s/%s/_apis/pipelines/%d/runs?api-version=7.1", config.Org, config.Project, pipelineId)
 
 	runReq := RunRequest{}
 	runReq.Resources.Repositories.Self.RefName = "refs/heads/" + config.Branch

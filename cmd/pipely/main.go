@@ -11,6 +11,7 @@ func main() {
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(pipelineCmd)
 	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(tuiCmd)
 	configCmd.AddCommand(setCmd)
 	configCmd.AddCommand(syncCmd)
 	runCmd.AddCommand(allCmd)
