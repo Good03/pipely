@@ -1,211 +1,139 @@
 # Pipely
 
-A keyboard-driven terminal UI and CLI for Azure DevOps Services YAML pipelines.
-Pipely has an original purple and charcoal interface, built with Go, Cobra,
-tview and tcell. It does not incorporate K9s source code or assets.
+Run and monitor Azure DevOps YAML pipelines from your terminal, using an
+interactive TUI or CLI.
+
+- Browse repositories and pipelines across organizations and projects.
+- Choose branches, parameters, and stages, with dependencies selected automatically.
+- Follow active runs, view logs and errors, cancel runs, and retry failed work.
+- Launch project-scoped groups of pipelines together.
+- Authenticate with Azure CLI or a personal access token (PAT).
 
 ## Install
 
-Requires Go 1.27+ to build. Azure CLI is required for Azure login; PAT mode
-works without Azure CLI or its Azure DevOps extension.
+Download an archive from [GitHub Releases](https://github.com/Good03/pipely/releases),
+extract it, and add the executable's folder to your `PATH`. Go is not required.
+
+| OS | Platform | Archive | Executable |
+| --- | --- | --- | --- |
+| Windows | `windows` | `.zip` | `pipely.exe` |
+| Linux | `linux` | `.tar.gz` | `pipely` |
+| macOS | `darwin` | `.tar.gz` | `pipely` |
+
+Choose `amd64` for Intel/x86-64 or `arm64` for ARM64, including Apple Silicon.
+Archive names follow `pipely_VERSION_PLATFORM_ARCH`.
+
+### Download from a terminal
+
+Replace the example version, platform, and architecture with a published release
+and your system's values.
+
+**macOS / Linux:**
 
 ```sh
-go build -o pipely ./cmd/pipely
-pipely context use my-organization my-project
+version=0.1.0
+platform=darwin
+arch=arm64
+archive="pipely_${version}_${platform}_${arch}.tar.gz"
+curl -fLO "https://github.com/Good03/pipely/releases/download/v${version}/${archive}"
+tar -xzf "$archive" pipely
+./pipely --help
+```
+
+**Windows (PowerShell):**
+
+```powershell
+$version = '0.1.0'
+$arch = 'amd64'
+$archive = "pipely_${version}_windows_${arch}.zip"
+Invoke-WebRequest "https://github.com/Good03/pipely/releases/download/v${version}/${archive}" -OutFile $archive
+Expand-Archive $archive -DestinationPath "pipely-$version"
+& ".\pipely-$version\pipely.exe" --help
+```
+
+## Quick start
+
+For `https://dev.azure.com/contoso/payments`:
+
+```sh
+pipely context use contoso payments
 pipely auth login
 pipely tui
 ```
 
-On Windows use `go build -o pipely.exe ./cmd/pipely`.
-Bare `pipely` displays CLI help; the TUI entrypoint is `pipely tui`.
+Azure login requires [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli).
+Pipely can also reuse an existing `az login` session. To use a PAT instead, run
+`pipely auth pat` after selecting your context; Azure CLI is then optional.
+PAT mode also accepts `AZURE_DEVOPS_EXT_PAT` or `PIPELY_PAT`.
 
-## Authentication and contexts
-
-Pipely reuses your `az login` session and obtains a token specifically for
-Azure DevOps. It refreshes the cached token before expiry. You can also use
-`pipely auth login --device-code`.
-
-For PAT authentication:
-
-```sh
-pipely auth pat
-```
-
-This uses `AZURE_DEVOPS_EXT_PAT` (or `PIPELY_PAT`) when supplied, otherwise
-prompts with hidden input and saves the PAT in the OS credential store.
-Linux credential storage requires a running Secret Service implementation;
-use an environment variable when no credential store is available.
-PATs need Build read/execute access. Automatic branch and parameter discovery
-also requires repository read access. Project visibility follows your ADO permissions.
-
-```sh
-pipely context use another-organization another-project
-pipely context list
-pipely context projects
-pipely auth status
-```
-
-Organizations are supplied by name, e.g. `contoso`. The TUI can add an
-organization, list its projects, and switch among saved contexts.
-`--org`, `--project`, and `--auth az|pat` override the current context for a command.
-PAT credentials are scoped to the organization.
-
-Configuration is stored under the platform's user configuration directory:
-`~/Library/Application Support/pipely/config.json` on macOS,
-`~/.config/pipely/config.json` on Linux (or `$XDG_CONFIG_HOME`), and
-`%AppData%\pipely\config.json` on Windows. Override with `--config PATH`.
-Legacy configurations still load; on the next settings save, a plaintext PAT
-is migrated to the credential store before being removed from the file.
-Migration leaves the original file untouched if credential storage fails.
+PATs need Build read/execute and repository read permissions for pipeline and
+metadata access. Saving a PAT on Linux requires Secret Service; use an environment
+variable if no credential store is available.
 
 ## TUI
 
-- Arrows navigate fields and buttons; Enter opens/selects; Space toggles checkboxes.
-  Esc closes dropdowns/modals first, then goes back. Tab is optional.
-- F4 focuses the Pipelines / Active runs / Groups tabs. Use Left/Right and Enter;
-  Selecting a tab keeps focus in the header so Left/Right can choose another tab.
-  Only the area with keyboard focus gets a filled purple selection; inactive
-  content retains its cursor position without a selection highlight.
-  Down enters the content. Up from the first table row also focuses the tabs.
-- F1 opens help; Ctrl-C quits. The footer separates status from contextual shortcuts.
-- F2 copies focused log/error text or the selected table row. Ctrl-Y copies the
-  complete last error. Mouse capture is off by default so terminal text selection
-  works; F3 toggles it. Clipboard copying uses native OS tools with a terminal
-  clipboard fallback (terminal clipboard support varies).
-- Press `:` (Shift+;) from navigation to focus the command bar. It is available
-  across tabs. Type `exit` and press Enter to quit. Other commands include `help`,
-  `pipelines`, `active`, `groups`, `refresh`, `context`, `auth`, and `approvals`.
-  Commands execute only on Enter; ordinary text filters the Pipelines table.
-  Esc or Down returns to content; Up moves to the header. Colons typed in normal
-  text fields are preserved.
-- Pipelines has a repository pane on the left and matching pipelines in the
-  middle. Left/Right (or h/l) moves between panes; Up/Down chooses repositories
-  and updates the pipeline list. All repositories shows the complete project.
-  Repository scope and command-bar filtering combine, and the current repository
-  is retained when returning from run details. Group selections remain project-wide.
-- Pipelines: `/` also focuses the command bar; `n` configures a run, `r` refreshes,
-  `o` opens contexts, and `a` opens authentication.
-- Space selects pipelines for a group; `s` saves the selection; `g` opens groups.
-- Run configuration loads branches and parameter definitions automatically.
-  Choose branches from a dropdown. Boolean parameters are checkboxes, allowed
-  values are dropdowns, and string-list choices are checkboxes. Unrestricted
-  strings/numbers use ordinary fields. Changing branch refreshes the schema.
-  Structured parameters use pipeline defaults or allowed values; required
-  structured parameters without either need a pipeline-defined default.
-  TUI configuration never requires entering JSON. Options loading has a 30-second
-  overall deadline, including authentication. Azure CLI token lookup is limited
-  to 15 seconds; timeout errors keep Retry and branch selection available.
-  If the configured YAML file is missing on the selected branch, Pipely explains
-  which file is missing, keeps the branch dropdown available, and blocks launch
-  until a branch with readable YAML is selected. It never substitutes YAML from
-  another branch.
-- Stages: Space toggles, `a` selects all, `x` clears optional stages.
-  Dependencies are selected automatically and marked required.
-  Deselect dependent stages before removing a required dependency.
-  Enter reviews and launches; `s` saves these options to a group member.
-- Runs: latest five plus active runs; Enter opens stages/jobs/tasks.
-- Active runs: all queued/running pipeline runs in the current project, refreshed
-  automatically. Esc from a run opened here returns to this tab.
-- Failed runs show Azure's validation and stage/job/task issues, including failures
-  before an agent starts. Press `e` in run details or logs to reopen diagnostics;
-  F2 copies the report. Enter on a failed record without a log opens its issues.
-- Run details: Enter on a record with a log ID follows its output (`f` toggles following); `c` cancels;
-  `R` retries failed work (select a stage for a stage-specific retry).
-- URLs in logs and diagnostics are native terminal hyperlinks. Ctrl/Cmd+click
-  opens them in terminals that support OSC 8 links (mouse capture stays off by
-  default). Press `o` for a keyboard link picker, then arrows and Enter to open
-  a URL in your default browser. Esc closes the picker; F2 still copies plain text.
-- `p` shows pending approvals in the current project and assigned approvers.
-  Complete approvals in Azure DevOps. Project approvals can belong to other runs;
-  Pipely does not assume that every waiting check is an approval.
+Open `pipely tui`, select a repository and pipeline, then press `n` to configure
+a run. Choose a branch and parameters, select stages, and review before launching.
+Selecting a stage automatically includes its prerequisites.
 
-Active views poll every three seconds. Azure remains the source of run history;
-Pipely does not retain logs or run history offline.
+| Key | Action |
+| --- | --- |
+| Arrows / Vim keys | Navigate lists and tables; arrows also navigate forms. |
+| `Enter` / `Space` | Select / toggle. |
+| `Esc` | Close a dropdown or dialog, or go back. |
+| `F4` | Focus tabs; Left/Right and Enter switch tabs. |
+| `:` | Open the command bar; type `exit` to quit. |
+| `F2` / `Ctrl-Y` | Copy focused text / last error. |
+| `F1` | Show help and more shortcuts. |
+
+The **Active runs** tab tracks project-wide execution. **Groups** manages saved
+pipeline groups. In logs, press `o` to open links and `f` to toggle following.
 
 ## CLI
 
+Replace the example pipeline ID `42` and run ID `1234` with your own:
+
 ```sh
-pipely repo list
 pipely pipeline list
-pipely pipeline list --repo my-repository
-pipely pipeline metadata 42 --branch main --json
-pipely run 42 --branch main --stages Prod --parameters '{"release":true}' --dry-run
+pipely run 42 --branch main --stages Prod --dry-run
 pipely run 42 --branch main --stages Build,Test --watch
 pipely runs active
 pipely runs list 42
-pipely runs status 1234
 pipely runs diagnose 1234
-pipely runs watch 1234
+pipely runs status 1234
 pipely logs 1234 7 --follow
 pipely runs cancel 1234
 pipely runs retry 1234
-pipely runs retry 1234 --stage Test
-pipely approvals
 ```
 
-`--json` produces machine-readable output. Watch/follow commands emit successive
-JSON snapshots/objects. Failed or canceled watched runs return a nonzero exit code.
-Log IDs are listed by `runs status`. Azure log envelopes are decoded into lines;
-structured log records are expanded for readability. The TUI highlights error,
-warning, command and section markers, wraps long lines and supports copying.
+Stage IDs are case-sensitive. Find log IDs with `runs status`. Use `--json` for
+structured output and `pipely COMMAND --help` for options.
 
-Stage IDs are case-sensitive YAML identifiers, not display names. Selecting Prod
-includes its transitive `dependsOn` chain, including implicit dependencies on the
-previous stage. An explicit `dependsOn: []` stays independent. Stages marked
-`isSkippable: false` and their dependencies are always included. Omitted `--stages`
-means all stages; omitted `--branch` uses Azure's default branch.
-
-Azure expands templates through a preview request before Pipely computes the
-selection. Runtime parameters must be supplied before preview when required.
-Azure conditions, permissions, environment checks and approval rules still apply.
-Preview failure blocks launch; Pipely does not guess stages from previous runs.
-Automatic branch/parameter discovery currently supports Azure Repos; other source
-providers can use CLI branch/parameter options and Azure preview expansion.
-Preview and queue are separate requests: branch/template changes between them can
-change the resolved pipeline. `--dry-run` does not queue a run.
-
-## Parallel project groups
+Run multiple pipelines from the same project:
 
 ```sh
 pipely group save microservices 42 43 44
-pipely group list
 pipely group run microservices --dry-run
-pipely group run microservices --concurrency 4
-pipely group delete microservices
+pipely group run microservices
 ```
 
-Groups belong to one organization/project. All members are validated before any
-are queued, and queue requests run in parallel with a configurable concurrency
-limit. Azure agent availability determines actual execution parallelism.
-Submission results include each run ID or error. A failed network request may have
-queued a run: inspect history before resubmitting. Pipely never automatically
-retries queue requests or rolls back successfully queued members.
+Azure agent capacity determines actual execution parallelism. Azure conditions
+and approvals still apply; complete approvals in Azure DevOps. Automatic branch
+and parameter discovery supports Azure Repos.
 
-For per-member branches, parameters and stages, create `members.json`:
+## Build from source
 
-```json
-[
-  {"pipelineId":42,"branch":"main","stages":["Prod"],"parameters":{"release":true}},
-  {"pipelineId":43,"branch":"release","stages":["Build","Test"]}
-]
-```
+Requires Go 1.27 or newer:
 
 ```sh
-pipely group save microservices --file members.json
+git clone https://github.com/Good03/pipely.git
+cd pipely
+go build -o pipely ./cmd/pipely
+./pipely --help
 ```
 
-The TUI also lets you configure a pipeline and save its options into an existing
-group. Group submission results link to each run's live details.
+On Windows, use `go build -o pipely.exe ./cmd/pipely`.
 
-## Development
+## License
 
-```sh
-go test ./...
-go test -race ./...
-go vet ./...
-```
-
-Unit/integration tests use mock Azure HTTP servers, a simulated terminal and
-pipeline YAML fixtures. Real ADO template expansion, deployment approvals, and
-retry permissions should also be verified with a disposable pipeline before use
-in a production release. No real Azure runs are created by the test suite.
+[Apache License 2.0](LICENSE).
