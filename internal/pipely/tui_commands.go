@@ -75,7 +75,7 @@ func (u *terminalUI) executeCommand(text string) bool {
 			}
 			switch u.screen {
 			case "active-runs":
-				u.loadActiveRuns()
+				u.loadActiveRunsWithProjects(true)
 			case "runs":
 				u.loadRuns()
 			case "timeline":

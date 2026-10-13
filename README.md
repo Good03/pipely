@@ -72,7 +72,8 @@ variable if no credential store is available.
 
 ## TUI
 
-Open `pipely tui`, select a repository and pipeline, then press `n` to configure
+Open `pipely tui`, choose a project in the left sidebar with Enter, select a
+repository and pipeline, then press `n` to configure
 a run. Choose a branch and parameters, select stages, and review before launching.
 Selecting a stage automatically includes its prerequisites.
 
@@ -86,8 +87,14 @@ Selecting a stage automatically includes its prerequisites.
 | `F2` / `Ctrl-Y` | Copy focused text / last error. |
 | `F1` | Show help and more shortcuts. |
 
-The **Active runs** tab tracks project-wide execution. **Groups** manages saved
-pipeline groups. In logs, press `o` to open links and `f` to toggle following.
+The sidebar lists accessible projects in the selected organization above the
+current project's repositories. Press Up from the first repository to focus
+projects; press Enter to switch. Press `r` to refresh newly created projects.
+
+The **Active runs** and **Groups** tabs also have a project sidebar. Press Left
+to focus it and Enter on a project to filter the current tab. New groups belong
+to the project whose pipelines you selected; the save form shows the assignment.
+In logs, press `o` to open links and `f` to toggle following.
 
 ## CLI
 
