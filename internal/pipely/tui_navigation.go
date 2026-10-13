@@ -66,6 +66,13 @@ func (u *terminalUI) input(e *tcell.EventKey) *tcell.EventKey {
 			return nil
 		}
 		if e.Key() == tcell.KeyUp && u.form == nil {
+			if u.screen == "pipelines" && u.app.GetFocus() == u.repoTable {
+				row, _ := u.repoTable.GetSelection()
+				if row <= 1 {
+					u.app.SetFocus(u.projectTable)
+					return nil
+				}
+			}
 			if t, ok := u.app.GetFocus().(*tview.Table); ok {
 				row, _ := t.GetSelection()
 				if row <= 1 {

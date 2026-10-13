@@ -34,6 +34,12 @@ type terminalUI struct {
 	screenCtx          context.Context
 	screenCancel       context.CancelFunc
 	pipelines          []Pipeline
+	projects           []Project
+	projectsOrg        string
+	projectTable       *tview.Table
+	projectMain        *tview.Table
+	projectBelow       *tview.Table
+	renderProjects     func()
 	repositories       []Repo
 	selectedRepoID     string
 	repoTable          *tview.Table
@@ -73,13 +79,13 @@ func newTerminalUI(parent context.Context, cancel context.CancelFunc, c Config, 
 	tview.Styles.PrimaryTextColor = tcell.NewHexColor(0xeee8fa)
 	u.header = tview.NewTextView().SetDynamicColors(true)
 	u.footer = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true)
-	u.footer.SetBackgroundColor(tcell.NewHexColor(0x241e31))
+	u.footer.SetBackgroundColor(charcoal)
 	u.hints = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true)
 	u.body = tview.NewFlex()
 	u.pages = tview.NewPages()
 	u.tabs = u.newTabs()
 	u.commandBar = u.newCommandBar()
-	layout := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(u.header, 2, 0, false).AddItem(u.tabs, 1, 0, false).AddItem(u.commandBar, 1, 0, false).AddItem(u.body, 0, 1, true).AddItem(u.footer, 2, 0, false).AddItem(u.hints, 2, 0, false)
+	layout := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(u.header, 1, 0, false).AddItem(u.tabs, 3, 0, false).AddItem(u.commandBar, 1, 0, false).AddItem(u.body, 0, 1, true).AddItem(u.footer, 2, 0, false).AddItem(u.hints, 2, 0, false)
 	u.pages.AddPage("main", layout, true, true)
 	u.app.SetRoot(u.pages, true).EnableMouse(false)
 	u.app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
@@ -245,6 +251,7 @@ func (u *terminalUI) home() {
 	repoTable := table()
 	u.repoTable = repoTable
 	u.pipelineTable = t
+	projectTable := u.newProjectPane(t, repoTable)
 	repoTable.SetBorder(true).SetTitle(" Repositories ")
 	t.SetBorder(true).SetTitle(" Pipelines ")
 	render := func() {
@@ -311,6 +318,11 @@ func (u *terminalUI) home() {
 		}
 	})
 	repoTable.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
+		row, _ := repoTable.GetSelection()
+		if row <= 1 && (e.Key() == tcell.KeyUp || e.Rune() == 'k') {
+			u.app.SetFocus(projectTable)
+			return nil
+		}
 		if e.Key() == tcell.KeyRight || e.Key() == tcell.KeyEscape || e.Rune() == 'l' {
 			u.app.SetFocus(t)
 			return nil
@@ -376,20 +388,33 @@ func (u *terminalUI) home() {
 		}
 		return vimTable(t, e)
 	})
-	panes := tview.NewFlex().AddItem(repoTable, 26, 0, false).AddItem(t, 0, 1, true)
+	sidebar := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(projectTable, 0, 1, false).AddItem(repoTable, 0, 2, true)
+	panes := tview.NewFlex().AddItem(sidebar, 28, 0, false).AddItem(t, 0, 1, true)
 	u.show("pipelines", "Pipelines", panes)
 	if !u.tabs.HasFocus() {
 		u.app.SetFocus(t)
 	}
 	u.renderRepositories()
 	render()
-	u.status("Choose a repository on the left. Left/Right moves between panes.")
+	u.status("Choose a project with Enter, then a repository. Left/Right moves between panes.")
 }
 func (u *terminalUI) refreshPipelines() {
 	cl := u.client
 	u.asyncRead(func(ctx context.Context) (func(), error) {
+		projects, projectErr := cl.Projects(ctx)
 		catalog, e := cl.Catalog(ctx)
 		return func() {
+			if projectErr == nil {
+				u.projects, u.projectsOrg = projects, cl.Org
+				if u.renderProjects != nil {
+					u.renderProjects()
+				}
+			}
+			if e != nil {
+				u.reportError(e)
+				return
+			}
 			u.pipelines = catalog.Pipelines
 			u.repositories = catalog.Repositories
 			u.repositoryNotice = catalog.Notice
@@ -399,12 +424,14 @@ func (u *terminalUI) refreshPipelines() {
 			if u.renderPipelines != nil {
 				u.renderPipelines()
 			}
-			if catalog.Notice != "" {
+			if projectErr != nil {
+				u.status("Project listing unavailable: " + projectErr.Error())
+			} else if catalog.Notice != "" {
 				u.status(catalog.Notice)
 			} else {
 				u.status(fmt.Sprintf("%d repositories · %d pipelines in this project", len(u.repositories), len(u.pipelines)))
 			}
-		}, e
+		}, nil
 	})
 }
 func (u *terminalUI) contextScreen() {
@@ -578,23 +605,28 @@ func (u *terminalUI) loadRuns() {
 }
 func (u *terminalUI) replace(widget tview.Primitive) { // Refresh without changing the navigation generation.
 	tabsFocused := u.app.GetFocus() == u.tabs
+	projectsFocused := u.screen == "active-runs" && u.app.GetFocus() == u.projectTable
 	u.content = widget
 	prepareTable(widget)
 	oldRow := 1
 	if old, ok := u.app.GetFocus().(*tview.Table); ok && !tabsFocused {
 		oldRow, _ = old.GetSelection()
 	}
-	u.body.Clear()
-	box := tview.NewFlex().AddItem(widget, 0, 1, true)
-	box.SetBorder(true).SetTitle(" " + u.screen + " ")
-	u.body.AddItem(box, 0, 1, true)
+	if u.screen == "active-runs" {
+		u.mountProjectContent(widget.(*tview.Table), "Active runs · "+u.config.Project, false)
+	} else {
+		u.body.Clear()
+		box := tview.NewFlex().AddItem(widget, 0, 1, true)
+		box.SetBorder(true).SetTitle(" " + u.screen + " ")
+		u.body.AddItem(box, 0, 1, true)
+	}
 	if t, ok := widget.(*tview.Table); ok && t.GetRowCount() > 1 {
 		if oldRow >= t.GetRowCount() {
 			oldRow = t.GetRowCount() - 1
 		}
 		t.Select(oldRow, 0)
 	}
-	if !tabsFocused {
+	if !tabsFocused && !projectsFocused {
 		u.app.SetFocus(widget)
 	}
 }
@@ -1008,6 +1040,7 @@ func (u *terminalUI) saveMemberForm(opts RunOptions) { u.groupNameForm([]RunOpti
 func (u *terminalUI) groupNameForm(members []RunOptions, appendMember bool) {
 	name := ""
 	f := tview.NewForm().AddInputField("Group name", "", 40, nil, func(s string) { name = s })
+	f.AddTextView("Project", u.config.Org+" / "+u.config.Project, 40, 1, false, false)
 	f.AddButton("Save", func() {
 		g := Group{Name: strings.TrimSpace(name), Org: u.config.Org, Project: u.config.Project, Members: members}
 		if appendMember {
@@ -1047,14 +1080,15 @@ func (u *terminalUI) groupScreen() {
 		}
 	}
 	t := table()
-	headers(t, "Group", "Pipelines")
+	headers(t, "Group", "Project", "Pipelines")
 	for i, g := range u.groups {
 		ids := []string{}
 		for _, m := range g.Members {
 			ids = append(ids, strconv.Itoa(m.PipelineID))
 		}
 		t.SetCell(i+1, 0, cell(g.Name))
-		t.SetCell(i+1, 1, cell(strings.Join(ids, ", ")))
+		t.SetCell(i+1, 1, cell(g.Project))
+		t.SetCell(i+1, 2, cell(strings.Join(ids, ", ")))
 	}
 	t.SetSelectedFunc(func(row, _ int) {
 		if row > 0 && row <= len(u.groups) {
@@ -1062,6 +1096,14 @@ func (u *terminalUI) groupScreen() {
 		}
 	})
 	t.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
+		if e.Key() == tcell.KeyLeft || e.Rune() == 'h' {
+			u.app.SetFocus(u.projectTable)
+			return nil
+		}
+		if e.Rune() == 'r' {
+			u.refreshProjectList()
+			return nil
+		}
 		if e.Key() == tcell.KeyEscape {
 			u.home()
 			return nil
@@ -1069,7 +1111,9 @@ func (u *terminalUI) groupScreen() {
 		return vimTable(t, e)
 	})
 	u.show("groups", "Project groups", t)
-	u.status("Groups belong to this project. Enter opens member options.")
+	u.mountProjectContent(t, "Groups · "+u.config.Project, true)
+	u.status("Choose a project on the left to filter groups. Enter opens member options.")
+	u.refreshProjectList()
 }
 func (u *terminalUI) groupDetail(g Group) {
 	list := tview.NewList().SetSelectedFocusOnly(true).ShowSecondaryText(true)

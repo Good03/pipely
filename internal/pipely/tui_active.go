@@ -11,9 +11,12 @@ import (
 
 func (u *terminalUI) newTabs() *tview.Table {
 	tabs := tview.NewTable().SetSelectable(false, true)
-	focusTableSelection(tabs, tcell.StyleDefault.Background(charcoal).Foreground(purple).Bold(true))
+	background := tcell.NewHexColor(0x30263e)
+	tabs.SetBorder(true).SetBorderColor(purple)
+	tabs.SetBackgroundColor(background)
+	focusTableSelection(tabs, tcell.StyleDefault.Background(background).Foreground(purple).Bold(true).Underline(true))
 	for i, name := range []string{"Pipelines", "Active runs", "Groups"} {
-		tabs.SetCell(0, i, cell("  "+name+"  "))
+		tabs.SetCell(0, i, cell("  "+name+"  ").SetAlign(tview.AlignCenter).SetBackgroundColor(background))
 	}
 	tabs.SetSelectedFunc(func(_, col int) {
 		switch col {
@@ -49,13 +52,15 @@ func (u *terminalUI) updateTabs() {
 			active = 1
 		}
 	}
-	for i := 0; i < 3; i++ {
+	for i, name := range []string{"Pipelines", "Active runs", "Groups"} {
 		c := u.tabs.GetCell(0, i)
-		c.SetTextColor(tcell.ColorWhite)
-		c.SetAttributes(tcell.AttrNone)
+		c.SetText("  " + name + "  ")
+		c.SetTextColor(tcell.NewHexColor(0xc9bedb))
+		c.SetAttributes(tcell.AttrBold)
 		if i == active {
+			c.SetText("  ● " + name + "  ")
 			c.SetTextColor(purple)
-			c.SetAttributes(tcell.AttrBold)
+			c.SetAttributes(tcell.AttrBold | tcell.AttrUnderline)
 		}
 	}
 	if !u.tabs.HasFocus() {
@@ -63,18 +68,37 @@ func (u *terminalUI) updateTabs() {
 	}
 }
 func (u *terminalUI) activeRunsScreen() {
-	u.show("active-runs", "Active pipeline runs", table())
+	t := table()
+	u.show("active-runs", "Active pipeline runs", t)
+	u.mountProjectContent(t, "Active runs · "+u.config.Project, true)
 	if u.client == nil {
 		u.status("Select a project and authenticate to load active runs")
 		return
 	}
-	u.loadActiveRuns()
+	u.loadActiveRunsWithProjects(true)
 }
 func (u *terminalUI) loadActiveRuns() {
+	u.loadActiveRunsWithProjects(false)
+}
+func (u *terminalUI) loadActiveRunsWithProjects(refreshProjects bool) {
 	cl := u.client
 	u.asyncRead(func(ctx context.Context) (func(), error) {
+		var projects []Project
+		var projectErr error
+		if refreshProjects {
+			projects, projectErr = cl.Projects(ctx)
+		}
 		runs, e := cl.ActiveRuns(ctx)
-		return func() { u.renderActiveRuns(runs) }, e
+		return func() {
+			if refreshProjects && projectErr == nil {
+				u.projects, u.projectsOrg = projects, cl.Org
+				u.renderProjects()
+			}
+			u.renderActiveRuns(runs)
+			if projectErr != nil {
+				u.status("Project listing unavailable: " + projectErr.Error())
+			}
+		}, e
 	})
 }
 func (u *terminalUI) renderActiveRuns(runs []Build) {
@@ -95,8 +119,12 @@ func (u *terminalUI) renderActiveRuns(runs []Build) {
 		}
 	})
 	t.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
+		if e.Key() == tcell.KeyLeft || e.Rune() == 'h' {
+			u.app.SetFocus(u.projectTable)
+			return nil
+		}
 		if e.Rune() == 'r' {
-			u.loadActiveRuns()
+			u.loadActiveRunsWithProjects(true)
 			return nil
 		}
 		return vimTable(t, e)

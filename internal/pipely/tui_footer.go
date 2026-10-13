@@ -2,12 +2,13 @@ package pipely
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/rivo/tview"
 )
 
 func (u *terminalUI) updateHints() {
-	common := "[::b]↑↓[-:-:-] Move   [::b]Enter[-:-:-] Select   [::b]Esc[-:-:-] Back   [::b]F1[-:-:-] Help   [::b]F2[-:-:-] Copy"
+	common := "[#b694ff::b]↑↓[-:-:-] Move   [#b694ff::b]Enter[-:-:-] Select   [#b694ff::b]Esc[-:-:-] Back   [#b694ff::b]F1[-:-:-] Help   [#b694ff::b]F2[-:-:-] Copy"
 	actions := "Ctrl-Y Copy error   F3 Mouse capture"
 	switch u.screen {
 	case "pipelines":
@@ -19,13 +20,13 @@ func (u *terminalUI) updateHints() {
 	case "runs":
 		actions = "n New run   r Refresh   Ctrl-Y Copy error"
 	case "active-runs":
-		actions = "r Refresh   Ctrl-Y Copy error"
+		actions = "← Projects   Enter Open run   r Refresh   Ctrl-Y Copy error"
 	case "timeline":
 		actions = "e Failure details   c Cancel   R Retry   p Approvals"
 	case "logs":
 		actions = "f Follow / pause   e Failures   o Links   PgUp/PgDn Scroll"
 	case "groups":
-		actions = "Enter Open group   Ctrl-Y Copy error"
+		actions = "← Projects   Enter Open group   r Refresh   Ctrl-Y Copy error"
 	case "approvals":
 		actions = "r Refresh   Ctrl-Y Copy error"
 	}
@@ -47,7 +48,12 @@ func (u *terminalUI) updateHints() {
 	if u.commandBar.HasFocus() {
 		actions = "Enter Execute / show matches   ↓ Content   ↑ Header   exit Quit"
 	}
-	u.hints.SetText(common + "\n" + actions)
+	shortcuts := strings.Split(actions, "   ")
+	for i, shortcut := range shortcuts {
+		key, description, _ := strings.Cut(shortcut, " ")
+		shortcuts[i] = "[#b694ff::b]" + tview.Escape(key) + "[-:-:-] " + tview.Escape(description)
+	}
+	u.hints.SetText(common + "\n" + strings.Join(shortcuts, "   "))
 }
 func (u *terminalUI) reportError(err error) {
 	text := err.Error()
@@ -59,8 +65,8 @@ func (u *terminalUI) reportError(err error) {
 	}
 }
 func (u *terminalUI) status(s string) {
-	u.footer.SetText("[#b694ff::b] STATUS [-:-:-] " + tview.Escape(s))
+	u.footer.SetText("[#b694ff::b] STATUS [-:-:-]  " + tview.Escape(s))
 }
 func (u *terminalUI) title() {
-	u.header.SetText(fmt.Sprintf("[#b694ff::b] PIPELY [-:-:-]  %s / %s\n [gray]Authentication: %s · Ctrl-C quit[-]", tview.Escape(u.config.Org), tview.Escape(u.config.Project), tview.Escape(u.config.Auth)))
+	u.header.SetText(fmt.Sprintf("[#b694ff::b] PIPELY [-:-:-]  %s / %s", tview.Escape(u.config.Org), tview.Escape(u.config.Project)))
 }
