@@ -16,24 +16,28 @@ func TestLoadConfig(t *testing.T) {
 		{
 			name: "load valid config",
 			config: Config{
-				Org:         "TestOrg",
-				Project:     "TestProject",
-				PAT:         "test-pat",
-				Repo:        "TestRepo",
-				Branch:      "main",
-				PipelineIds: []string{"1", "2", "3"},
+				Org:     "TestOrg",
+				Project: "TestProject",
+				PAT:     "test-pat",
+				Repo:    "TestRepo",
+				Branch:  "main",
+				Pipelines: []Pipeline{
+					{Id: 1, Name: "Pipeline1"},
+					{Id: 2, Name: "Pipeline2"},
+					{Id: 3, Name: "Pipeline3"},
+				},
 			},
 			expectErr: false,
 		},
 		{
 			name: "load config with no pipelines",
 			config: Config{
-				Org:         "TestOrg",
-				Project:     "TestProject",
-				PAT:         "test-pat",
-				Repo:        "TestRepo",
-				Branch:      "develop",
-				PipelineIds: []string{},
+				Org:       "TestOrg",
+				Project:   "TestProject",
+				PAT:       "test-pat",
+				Repo:      "TestRepo",
+				Branch:    "develop",
+				Pipelines: []Pipeline{},
 			},
 			expectErr: false,
 		},
@@ -76,8 +80,8 @@ func TestLoadConfig(t *testing.T) {
 				t.Errorf("LoadConfig() Branch = %s, want %s", got.Branch, tt.config.Branch)
 			}
 
-			if len(got.PipelineIds) != len(tt.config.PipelineIds) {
-				t.Errorf("LoadConfig() PipelineIds length = %d, want %d", len(got.PipelineIds), len(tt.config.PipelineIds))
+			if len(got.Pipelines) != len(tt.config.Pipelines) {
+				t.Errorf("LoadConfig() Pipelines length = %d, want %d", len(got.Pipelines), len(tt.config.Pipelines))
 			}
 		})
 	}
@@ -92,12 +96,16 @@ func TestLoadConfigFileNotFound(t *testing.T) {
 
 func TestListPipelines(t *testing.T) {
 	config := Config{
-		Org:         "TestOrg",
-		Project:     "TestProject",
-		PAT:         "test-pat",
-		Repo:        "TestRepo",
-		Branch:      "main",
-		PipelineIds: []string{"1", "2", "3"},
+		Org:     "TestOrg",
+		Project: "TestProject",
+		PAT:     "test-pat",
+		Repo:    "TestRepo",
+		Branch:  "main",
+		Pipelines: []Pipeline{
+			{Id: 1, Name: "Pipeline1"},
+			{Id: 2, Name: "Pipeline2"},
+			{Id: 3, Name: "Pipeline3"},
+		},
 	}
 
 	tmpDir := t.TempDir()
@@ -130,12 +138,18 @@ func TestListPipelines(t *testing.T) {
 
 func BenchmarkLoadConfig(b *testing.B) {
 	config := Config{
-		Org:         "TestOrg",
-		Project:     "TestProject",
-		PAT:         "test-pat-12345",
-		Repo:        "TestRepo",
-		Branch:      "main",
-		PipelineIds: []string{"1", "2", "3", "4", "5"},
+		Org:     "TestOrg",
+		Project: "TestProject",
+		PAT:     "test-pat-12345",
+		Repo:    "TestRepo",
+		Branch:  "main",
+		Pipelines: []Pipeline{
+			{Id: 1, Name: "Pipeline1"},
+			{Id: 2, Name: "Pipeline2"},
+			{Id: 3, Name: "Pipeline3"},
+			{Id: 4, Name: "Pipeline4"},
+			{Id: 5, Name: "Pipeline5"},
+		},
 	}
 
 	tmpDir := b.TempDir()

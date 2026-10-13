@@ -1,145 +1,139 @@
 # Pipely
 
-A command-line tool for managing and running Azure DevOps pipelines efficiently.
+Run and monitor Azure DevOps YAML pipelines from your terminal, using an
+interactive TUI or CLI.
 
-Pipely simplifies interaction with Azure DevOps by providing an intuitive CLI for configuration management, and pipeline execution.
+- Browse repositories and pipelines across organizations and projects.
+- Choose branches, parameters, and stages, with dependencies selected automatically.
+- Follow active runs, view logs and errors, cancel runs, and retry failed work.
+- Launch project-scoped groups of pipelines together.
+- Authenticate with Azure CLI or a personal access token (PAT).
 
-## Prerequisites
+## Install
 
-Before you start, you need:
+Download an archive from [GitHub Releases](https://github.com/Good03/pipely/releases),
+extract it, and add the executable's folder to your `PATH`. Go is not required.
 
-1. **Go** version 1.27.0 or later
-2. **Azure DevOps Account** with at least one organization
-3. **Personal Access Token (PAT)** from Azure DevOps
+| OS | Platform | Archive | Executable |
+| --- | --- | --- | --- |
+| Windows | `windows` | `.zip` | `pipely.exe` |
+| Linux | `linux` | `.tar.gz` | `pipely` |
+| macOS | `darwin` | `.tar.gz` | `pipely` |
 
-### Getting a Personal Access Token
+Choose `amd64` for Intel/x86-64 or `arm64` for ARM64, including Apple Silicon.
+Archive names follow `pipely_VERSION_PLATFORM_ARCH`.
 
-1. Go to your Azure DevOps organization
-2. Click **User Settings** (profile icon)
-3. Select **Personal access tokens**
-4. Click **New Token**
-5. Configure the token:
-   - Scopes: Select at least "Build (read & execute)"
-6. Click **Create** and **copy the token**
+### Download from a terminal
 
-## Installation
+Replace the example version, platform, and architecture with a published release
+and your system's values.
 
-### Option 1: Build from Source
+**macOS / Linux:**
 
-```bash
+```sh
+version=0.1.0
+platform=darwin
+arch=arm64
+archive="pipely_${version}_${platform}_${arch}.tar.gz"
+curl -fLO "https://github.com/Good03/pipely/releases/download/v${version}/${archive}"
+tar -xzf "$archive" pipely
+./pipely --help
+```
+
+**Windows (PowerShell):**
+
+```powershell
+$version = '0.1.0'
+$arch = 'amd64'
+$archive = "pipely_${version}_windows_${arch}.zip"
+Invoke-WebRequest "https://github.com/Good03/pipely/releases/download/v${version}/${archive}" -OutFile $archive
+Expand-Archive $archive -DestinationPath "pipely-$version"
+& ".\pipely-$version\pipely.exe" --help
+```
+
+## Quick start
+
+For `https://dev.azure.com/contoso/payments`:
+
+```sh
+pipely context use contoso payments
+pipely auth login
+pipely tui
+```
+
+Azure login requires [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli).
+Pipely can also reuse an existing `az login` session. To use a PAT instead, run
+`pipely auth pat` after selecting your context; Azure CLI is then optional.
+PAT mode also accepts `AZURE_DEVOPS_EXT_PAT` or `PIPELY_PAT`.
+
+PATs need Build read/execute and repository read permissions for pipeline and
+metadata access. Saving a PAT on Linux requires Secret Service; use an environment
+variable if no credential store is available.
+
+## TUI
+
+Open `pipely tui`, select a repository and pipeline, then press `n` to configure
+a run. Choose a branch and parameters, select stages, and review before launching.
+Selecting a stage automatically includes its prerequisites.
+
+| Key | Action |
+| --- | --- |
+| Arrows / Vim keys | Navigate lists and tables; arrows also navigate forms. |
+| `Enter` / `Space` | Select / toggle. |
+| `Esc` | Close a dropdown or dialog, or go back. |
+| `F4` | Focus tabs; Left/Right and Enter switch tabs. |
+| `:` | Open the command bar; type `exit` to quit. |
+| `F2` / `Ctrl-Y` | Copy focused text / last error. |
+| `F1` | Show help and more shortcuts. |
+
+The **Active runs** tab tracks project-wide execution. **Groups** manages saved
+pipeline groups. In logs, press `o` to open links and `f` to toggle following.
+
+## CLI
+
+Replace the example pipeline ID `42` and run ID `1234` with your own:
+
+```sh
+pipely pipeline list
+pipely run 42 --branch main --stages Prod --dry-run
+pipely run 42 --branch main --stages Build,Test --watch
+pipely runs active
+pipely runs list 42
+pipely runs diagnose 1234
+pipely runs status 1234
+pipely logs 1234 7 --follow
+pipely runs cancel 1234
+pipely runs retry 1234
+```
+
+Stage IDs are case-sensitive. Find log IDs with `runs status`. Use `--json` for
+structured output and `pipely COMMAND --help` for options.
+
+Run multiple pipelines from the same project:
+
+```sh
+pipely group save microservices 42 43 44
+pipely group run microservices --dry-run
+pipely group run microservices
+```
+
+Azure agent capacity determines actual execution parallelism. Azure conditions
+and approvals still apply; complete approvals in Azure DevOps. Automatic branch
+and parameter discovery supports Azure Repos.
+
+## Build from source
+
+Requires Go 1.27 or newer:
+
+```sh
 git clone https://github.com/Good03/pipely.git
 cd pipely
 go build -o pipely ./cmd/pipely
+./pipely --help
 ```
 
-### Option 2: Download Pre-built Binary
+On Windows, use `go build -o pipely.exe ./cmd/pipely`.
 
-Download the latest release from the [Releases](https://github.com/Good03/pipely/releases) page.
+## License
 
-### Add to PATH
-
-To run pipely from anywhere in your terminal:
-
-**Windows (PowerShell):**
-```powershell
-$env:PATH += ";C:\path\to\pipely\directory"
-```
-
-**Linux/macOS:**
-```bash
-export PATH="$PATH:/path/to/pipely/directory"
-```
-
-Or copy the executable to a directory already in your PATH.
-
-## Configuration
-
-### Initialize Configuration
-
-On first use, run:
-
-```bash
-pipely init
-```
-
-This interactive command will:
-1. Prompt for your Azure DevOps organization name
-2. Prompt for your Personal Access Token (PAT)
-3. Display available projects for selection
-4. Display available repositories for selection
-5. Display available pipelines for selection
-6. Save the configuration file on your local machine
-
-### View Configuration
-
-```bash
-pipely config
-```
-
-Displays your current configuration settings including organization, project, repository, branch, and pipeline IDs.
-
-### Update Configuration
-
-```bash
-pipely config set
-```
-
-Modify specific configuration values after initial setup.
-
-### Sync Configuration
-
-```bash
-pipely config sync
-```
-
-Synchronize your local pipeline list with the current Azure DevOps pipelines.
-
-## Usage
-
-### List Pipelines
-
-View all pipelines defined in your configuration:
-
-```bash
-pipely pipeline list
-```
-
-Output example:
-```
-Pipelines defined in config:
-- ID: 42
-- ID: 156
-- ID: 203
-```
-
-### Run Pipelines
-
-Execute all pipelines defined in your configuration:
-
-```bash
-pipely run all
-```
-
-This runs all configured pipelines concurrently and displays the results.
-
-Execute all pipelines defined in your configuration:
-
-```bash
-pipely run <pipelineId>
-```
-
-This runs a pipeline with specific id.
-
-## Configuration File Location
-
-Pipely stores configuration in:
-
-- **Windows**: `%USERPROFILE%\.pipely\config.json`
-- **Linux/macOS**: `~/.pipely/config.json`
-
-## Security Notes
-
- **Important**: Never commit your PAT or configuration file to version control!
-- The configuration file contains sensitive information
-- Add `.pipely/config.json` to your `.gitignore`
-- Rotate your PAT periodically for security
+[Apache License 2.0](LICENSE).

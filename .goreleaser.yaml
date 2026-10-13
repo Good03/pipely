@@ -1,8 +1,13 @@
+version: 2
 project_name: pipely
 builds:
   - id: pipely
     main: ./cmd/pipely
     binary: pipely
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
     goos:
       - linux
       - windows
@@ -12,11 +17,14 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+
+checksum:
+  name_template: checksums.txt
 
 release:
   github:

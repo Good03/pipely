@@ -1,61 +1,48 @@
 package pipely
 
 import (
-	"bytes"
-	"encoding/base64"
-	"encoding/json/v2"
-	"fmt"
-	"io"
+	"context"
 	"log/slog"
-	"net/http"
-	"sync"
 )
 
-func RunPipelines(config Config) {
-	pipelineIds := config.PipelineIds
-	var wg sync.WaitGroup
-	for _, pipelineId := range pipelineIds {
-		wg.Add(1)
-		go func(id string) {
-			defer wg.Done()
-			RunPipeline(id, config)
-		}(pipelineId)
+func RunPipeline(id int, c Config) {
+	client, e := NewClient(c)
+	if e != nil {
+		slog.Error(e.Error())
+		return
 	}
-	wg.Wait()
+	p, e := client.Prepare(context.Background(), RunOptions{PipelineID: id, Branch: c.Branch})
+	if e != nil {
+		slog.Error(e.Error())
+		return
+	}
+	b, e := client.Launch(context.Background(), p)
+	if e != nil {
+		slog.Error(e.Error())
+		return
+	}
+	slog.Info("Pipeline queued", "run", b.ID)
 }
-
-func RunPipeline(pipelineId string, config Config) {
-	slog.Info("Starting pipeline", "pipelineID", pipelineId)
-	url := fmt.Sprintf("https://dev.azure.com/%s/%s/_apis/pipelines/%s/runs?api-version=7.1", config.Org, config.Project, pipelineId)
-
-	runReq := RunRequest{}
-	runReq.Resources.Repositories.Self.RefName = "refs/heads/" + config.Branch
-
-	body, err := json.Marshal(runReq)
-	if err != nil {
-		slog.Error("Failed to marshal request", "error", err)
+func RunPipelines(c Config) {
+	client, e := NewClient(c)
+	if e != nil {
+		slog.Error(e.Error())
 		return
 	}
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
-	if err != nil {
-		slog.Error("Failed to create request", "error", err)
+	g := Group{Org: c.Org, Project: c.Project}
+	for _, p := range c.Pipelines {
+		g.Members = append(g.Members, RunOptions{PipelineID: p.Id, Branch: c.Branch})
+	}
+	plans, e := client.PrepareGroup(context.Background(), g)
+	if e != nil {
+		slog.Error(e.Error())
 		return
 	}
-
-	auth := base64.StdEncoding.EncodeToString([]byte(":" + config.PAT))
-	req.Header.Set("Authorization", "Basic "+auth)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		slog.Error("Failed to execute request", "error", err)
-		return
+	results, e := client.LaunchGroup(context.Background(), plans, 4)
+	if e != nil {
+		slog.Error(e.Error())
 	}
-
-	defer resp.Body.Close()
-
-	b, _ := io.ReadAll(resp.Body)
-
-	slog.Info("Pipeline run response", "status", resp.Status, "body", string(b))
+	for _, r := range results {
+		slog.Info("Group member", "pipeline", r.PipelineID, "run", r.RunID, "error", r.Error)
+	}
 }
