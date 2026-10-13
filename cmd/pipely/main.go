@@ -1,23 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 )
 
 func main() {
-	rootCmd.AddCommand(configCmd)
-	rootCmd.AddCommand(initConfigCmd)
-	rootCmd.AddCommand(runCmd)
-	rootCmd.AddCommand(pipelineCmd)
-	rootCmd.AddCommand(listCmd)
-	rootCmd.AddCommand(tuiCmd)
-	configCmd.AddCommand(setCmd)
-	configCmd.AddCommand(syncCmd)
-	runCmd.AddCommand(allCmd)
-
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
