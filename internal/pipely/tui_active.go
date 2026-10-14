@@ -130,5 +130,5 @@ func (u *terminalUI) renderActiveRuns(runs []Build) {
 		return vimTable(t, e)
 	})
 	u.replace(t)
-	u.status(fmt.Sprintf("%d active runs in this project · Updates every 3 seconds.", len(runs)))
+	u.status(fmt.Sprintf("%d active runs · %s", len(runs), u.config.Project))
 }

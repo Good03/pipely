@@ -155,7 +155,6 @@ func (u *terminalUI) linkPicker(text string) {
 			u.openLink(target)
 		})
 	}
-	list.SetBorder(true).SetTitle(" Links · ↑↓ choose · Enter open · Esc close ")
 	list.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
 		if e.Key() == tcell.KeyEscape {
 			u.pages.RemovePage("links")
@@ -164,6 +163,6 @@ func (u *terminalUI) linkPicker(text string) {
 		}
 		return e
 	})
-	u.pages.AddPage("links", list, true, true)
+	u.pages.AddPage("links", newCenteredDialog(list, "Links"), true, true)
 	u.app.SetFocus(list)
 }

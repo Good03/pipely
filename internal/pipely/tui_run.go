@@ -34,7 +34,7 @@ func (u *terminalUI) loadRunForm(p Pipeline, opts RunOptions, branches []string)
 			u.loadRunForm(p, next, branches)
 		})
 	}
-	f.AddTextView("Options", "Loading pipeline parameters (up to 30 seconds)…", 60, 1, false, false)
+	f.AddTextView("Options", "Loading pipeline parameters…", 60, 1, false, false)
 	f.AddButton("Retry loading options", func() { u.loadRunForm(p, opts, branches) })
 	initializing = false
 	u.show("run-form", "Configure run · "+tview.Escape(p.Name), f)
@@ -188,7 +188,7 @@ func (u *terminalUI) renderRunForm(p Pipeline, opts RunOptions, m Metadata) {
 				form.AddTextView(label, "No pipeline default available", 50, 2, false, false)
 			} else {
 				params[name] = value
-				form.AddTextView(label, "Uses the pipeline's configured default", 50, 1, false, false)
+				form.AddTextView(label, "Pipeline default", 50, 1, false, false)
 			}
 		}
 	}
@@ -217,5 +217,9 @@ func (u *terminalUI) renderRunForm(p Pipeline, opts RunOptions, m Metadata) {
 	form.AddButton("Reload options", func() { next := opts; next.Branch = branch; next.Parameters = params; u.runForm(p, next) })
 	initializing = false
 	u.show("run-form", "Configure run · "+tview.Escape(p.Name), form)
-	u.status("Choose a branch and pipeline parameters. Enter opens dropdowns.")
+	if u.editingGroupName != "" {
+		u.status("Editing group " + u.editingGroupName)
+	} else {
+		u.status("Configure pipeline")
+	}
 }
