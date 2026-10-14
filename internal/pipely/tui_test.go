@@ -93,9 +93,10 @@ func sendUI(u *terminalUI, key tcell.Key, r rune) {
 	if event == nil {
 		return
 	}
-	focus := u.app.GetFocus()
-	if focus != nil {
-		focus.InputHandler()(event, func(p tview.Primitive) { u.app.SetFocus(p) })
+	// Match Application.Run: route input through the root and its containers.
+	// Sending directly to the focused field hides broken container forwarding.
+	if handler := u.pages.InputHandler(); handler != nil {
+		handler(event, func(p tview.Primitive) { u.app.SetFocus(p) })
 	}
 }
 func TestTypedRunOptionsAndArrowNavigation(t *testing.T) {
@@ -378,7 +379,26 @@ func TestOnlyFocusedAreaHasSelectionHighlight(t *testing.T) {
 	}
 	sendUI(u, tcell.KeyF1, 0)
 	u.app.ForceDraw()
-	if purpleSelectionCells(screen, u.tabs) != 0 || purpleSelectionCells(screen, content) != 0 {
+	_, overlay := u.pages.GetFrontPage()
+	panel := overlay.(*centeredDialog).widget
+	ox, oy, ow, oh := panel.GetRect()
+	outsideHighlighted := func(widget tview.Primitive) bool {
+		x, y, width, height := widget.GetRect()
+		for row := y; row < y+height; row++ {
+			for col := x; col < x+width; col++ {
+				if col >= ox && col < ox+ow && row >= oy && row < oy+oh {
+					continue // The overlay's own focused button is allowed here.
+				}
+				_, _, style, _ := screen.GetContent(col, row)
+				_, background, _ := style.Decompose()
+				if background == purple {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if u.tabs.HasFocus() || content.HasFocus() || outsideHighlighted(u.tabs) || outsideHighlighted(content) {
 		t.Fatal("unfocused areas remained highlighted behind the help dialog")
 	}
 	sendUI(u, tcell.KeyEscape, 0)

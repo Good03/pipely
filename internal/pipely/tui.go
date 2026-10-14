@@ -56,10 +56,12 @@ type terminalUI struct {
 	groupRuns          []GroupResult
 	groupRunGroup      Group
 	groupLaunchErr     error
+	editingGroupName   string
 	tabs               *tview.Table
 	content            tview.Primitive
 	runOrigin          string
 	form               *tview.Form
+	choosing           bool
 	back               func()
 	overlayFocus       map[string]tview.Primitive
 	terminalScreen     tcell.Screen
@@ -74,9 +76,13 @@ func newTerminalUI(parent context.Context, cancel context.CancelFunc, c Config, 
 	u := &terminalUI{app: tview.NewApplication(), ctx: parent, cancel: cancel, config: c, path: path, selected: map[int]bool{}, overlayFocus: map[string]tview.Primitive{}, copyText: nativeCopy, openURL: openBrowserLink}
 	tview.Styles.PrimitiveBackgroundColor = charcoal
 	tview.Styles.ContrastBackgroundColor = tcell.NewHexColor(0x30263e)
+	tview.Styles.MoreContrastBackgroundColor = charcoal
 	tview.Styles.BorderColor = purple
 	tview.Styles.TitleColor = purple
 	tview.Styles.PrimaryTextColor = tcell.NewHexColor(0xeee8fa)
+	tview.Styles.SecondaryTextColor = tcell.NewHexColor(0xc9bedb)
+	tview.Styles.TertiaryTextColor = tcell.NewHexColor(0xc9bedb)
+	tview.Styles.InverseTextColor = charcoal
 	u.header = tview.NewTextView().SetDynamicColors(true)
 	u.footer = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true)
 	u.footer.SetBackgroundColor(charcoal)
@@ -153,10 +159,13 @@ func (u *terminalUI) show(name, title string, widget tview.Primitive) {
 	u.screen = name
 	u.content = widget
 	u.form, _ = widget.(*tview.Form)
+	u.choosing = u.form != nil || isChoiceScreen(name)
 	u.setBack(name)
 	u.title()
 	u.body.Clear()
-	if name == "pipelines" {
+	if u.choosing {
+		u.body.AddItem(newCenteredDialog(widget, title), 0, 1, true)
+	} else if name == "pipelines" {
 		u.body.AddItem(widget, 0, 1, true)
 	} else {
 		box := tview.NewFlex().AddItem(widget, 0, 1, true)
@@ -164,7 +173,7 @@ func (u *terminalUI) show(name, title string, widget tview.Primitive) {
 		u.body.AddItem(box, 0, 1, true)
 	}
 	prepareTable(widget)
-	if tabsFocused {
+	if tabsFocused && !u.choosing {
 		u.app.SetFocus(u.tabs)
 	} else {
 		u.app.SetFocus(widget)
@@ -246,6 +255,7 @@ func vimTable(t *tview.Table, e *tcell.EventKey) *tcell.EventKey {
 	return e
 }
 func (u *terminalUI) home() {
+	u.editingGroupName = ""
 	t := table()
 	bar := u.commandBar
 	repoTable := table()
@@ -397,7 +407,7 @@ func (u *terminalUI) home() {
 	}
 	u.renderRepositories()
 	render()
-	u.status("Choose a project with Enter, then a repository. Left/Right moves between panes.")
+	u.status("Ready")
 }
 func (u *terminalUI) refreshPipelines() {
 	cl := u.client
@@ -436,7 +446,6 @@ func (u *terminalUI) refreshPipelines() {
 }
 func (u *terminalUI) contextScreen() {
 	list := tview.NewList().SetSelectedFocusOnly(true).ShowSecondaryText(false)
-	list.AddItem("Add organization / select project", "", 'n', u.contextForm)
 	for _, x := range u.config.Contexts {
 		x := x
 		list.AddItem(x.Org+" / "+x.Project, "", 0, func() {
@@ -452,8 +461,34 @@ func (u *terminalUI) contextScreen() {
 			u.connect()
 		})
 	}
-	list.AddItem("Back", "", 0, u.home)
 	u.show("contexts", "Organization / Project", list)
+	actions := tview.NewForm().AddButton("Add organization", u.contextForm)
+	list.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
+		if e.Rune() == 'n' {
+			u.contextForm()
+			return nil
+		}
+		if (e.Key() == tcell.KeyDown || e.Rune() == 'j' || e.Key() == tcell.KeyTab) && list.GetCurrentItem() >= list.GetItemCount()-1 {
+			u.app.SetFocus(actions)
+			return nil
+		}
+		return e
+	})
+	actions.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
+		if (e.Key() == tcell.KeyUp || e.Rune() == 'k') && list.GetItemCount() > 0 {
+			u.app.SetFocus(list)
+			return nil
+		}
+		if e.Rune() == 'n' {
+			u.contextForm()
+			return nil
+		}
+		return e
+	})
+	u.body.Clear().AddItem(newCenteredDialog(newDialogActions(list, actions), "Organization / Project"), 0, 1, true)
+	if list.GetItemCount() == 0 {
+		u.app.SetFocus(actions)
+	}
 }
 func (u *terminalUI) contextForm() {
 	org := u.config.Org
@@ -495,7 +530,6 @@ func (u *terminalUI) contextForm() {
 						u.connect()
 					})
 				}
-				list.AddItem("Back", "", 0, u.contextForm)
 				u.show("projects", "Select project", list)
 			}, e
 		})
@@ -599,7 +633,7 @@ func (u *terminalUI) loadRuns() {
 				return vimTable(t, e)
 			})
 			u.replace(t)
-			u.status("Latest five runs + active runs. Updates every 3 seconds.")
+			u.status("Latest five runs + active runs")
 		}, e
 	})
 }
@@ -831,7 +865,7 @@ func (u *terminalUI) loadLog() {
 			if u.followLog {
 				mode = "Following log"
 			}
-			u.status(mode + " · Updates every 3 seconds.")
+			u.status(mode)
 		}, e
 	})
 }
@@ -876,26 +910,28 @@ func (u *terminalUI) approvalScreen() {
 	})
 }
 func (u *terminalUI) confirm(text string, yes func()) {
-	focus := u.app.GetFocus()
-	u.overlayFocus["confirm"] = focus
-	m := tview.NewModal().SetText(text).AddButtons([]string{"Back", "Confirm"}).SetDoneFunc(func(i int, _ string) {
-		u.pages.RemovePage("confirm")
-		u.app.SetFocus(focus)
-		if i == 1 {
+	u.messageDialog("confirm", "Confirm", text, []string{"Confirm", "Back"}, func(index int) {
+		if index == 0 {
 			yes()
 		}
 	})
-	u.pages.AddPage("confirm", m, false, true)
-	u.app.SetFocus(m)
 }
 func (u *terminalUI) stageScreen(p Pipeline, plan Plan, previous []string) {
 	t := table()
+	editingMember := u.editingGroupName != ""
 	explicit := map[string]bool{}
 	for _, id := range previous {
 		explicit[id] = true
 	}
 	if len(previous) == 0 && len(plan.Stages) > 0 {
-		explicit[plan.Stages[0].ID] = true
+		if editingMember {
+			// An unset group selection means all stages; preserve that default.
+			for _, stage := range plan.Stages {
+				explicit[stage.ID] = true
+			}
+		} else {
+			explicit[plan.Stages[0].ID] = true
+		}
 	}
 	included := map[string]bool{}
 	render := func() {
@@ -950,7 +986,7 @@ func (u *terminalUI) stageScreen(p Pipeline, plan Plan, previous []string) {
 		}
 		options := plan.Options
 		options.Stages = selected
-		if save {
+		if save || editingMember {
 			u.saveMemberForm(options)
 			return
 		}
@@ -1021,7 +1057,11 @@ func (u *terminalUI) stageScreen(p Pipeline, plan Plan, previous []string) {
 	})
 	u.show("stages", "Select stages · "+tview.Escape(p.Name), t)
 	render()
-	u.status("Dependencies are included automatically. Enter reviews the launch.")
+	if editingMember {
+		u.status("Editing group " + u.editingGroupName)
+	} else {
+		u.status("Select stages")
+	}
 }
 func (u *terminalUI) saveSelectedGroup() {
 	members := []RunOptions{}
@@ -1036,16 +1076,45 @@ func (u *terminalUI) saveSelectedGroup() {
 	}
 	u.groupNameForm(members, false)
 }
-func (u *terminalUI) saveMemberForm(opts RunOptions) { u.groupNameForm([]RunOptions{opts}, true) }
+func (u *terminalUI) saveMemberForm(opts RunOptions) {
+	if u.editingGroupName != "" {
+		g, err := FindGroup(u.config, u.editingGroupName)
+		if err != nil {
+			u.reportError(err)
+			return
+		}
+		g.Members = append([]RunOptions(nil), g.Members...)
+		for i, member := range g.Members {
+			if member.PipelineID == opts.PipelineID {
+				g.Members[i] = opts
+				break
+			}
+		}
+		if err := u.persistGroup(g); err != nil {
+			u.reportError(err)
+			return
+		}
+		u.groupDetail(g)
+		u.status("Member options saved to group " + g.Name)
+		return
+	}
+	u.groupNameForm([]RunOptions{opts}, true)
+}
 func (u *terminalUI) groupNameForm(members []RunOptions, appendMember bool) {
 	name := ""
 	f := tview.NewForm().AddInputField("Group name", "", 40, nil, func(s string) { name = s })
 	f.AddTextView("Project", u.config.Org+" / "+u.config.Project, 40, 1, false, false)
 	f.AddButton("Save", func() {
 		g := Group{Name: strings.TrimSpace(name), Org: u.config.Org, Project: u.config.Project, Members: members}
+		if !appendMember {
+			if old, err := FindGroup(u.config, g.Name); err == nil {
+				g.Members = preserveGroupOptions(old.Members, members)
+			}
+		}
 		if appendMember {
 			if old, e := FindGroup(u.config, g.Name); e == nil {
 				g = old
+				g.Members = append([]RunOptions(nil), old.Members...)
 				found := false
 				for i, m := range g.Members {
 					if m.PipelineID == members[0].PipelineID {
@@ -1058,11 +1127,7 @@ func (u *terminalUI) groupNameForm(members []RunOptions, appendMember bool) {
 				}
 			}
 		}
-		if e := PutGroup(&u.config, g); e != nil {
-			u.reportError(e)
-			return
-		}
-		if e := u.saveSettings(); e != nil {
+		if e := u.persistGroup(g); e != nil {
 			u.reportError(e)
 			return
 		}
@@ -1070,9 +1135,10 @@ func (u *terminalUI) groupNameForm(members []RunOptions, appendMember bool) {
 	})
 	f.AddButton("Back", u.home)
 	u.show("save-group", "Save project group", f)
-	u.status("An existing group with this name will be updated; groups stay within the current project")
+	u.status("Save group · " + u.config.Project)
 }
 func (u *terminalUI) groupScreen() {
+	u.editingGroupName = ""
 	u.groups = nil
 	for _, g := range u.config.Groups {
 		if g.Org == u.config.Org && g.Project == u.config.Project {
@@ -1112,51 +1178,8 @@ func (u *terminalUI) groupScreen() {
 	})
 	u.show("groups", "Project groups", t)
 	u.mountProjectContent(t, "Groups · "+u.config.Project, true)
-	u.status("Choose a project on the left to filter groups. Enter opens member options.")
+	u.status(fmt.Sprintf("%d groups · %s", len(u.groups), u.config.Project))
 	u.refreshProjectList()
-}
-func (u *terminalUI) groupDetail(g Group) {
-	list := tview.NewList().SetSelectedFocusOnly(true).ShowSecondaryText(true)
-	for _, m := range g.Members {
-		m := m
-		list.AddItem(fmt.Sprintf("Pipeline %d", m.PipelineID), "Branch: "+m.Branch+" · Stages: "+strings.Join(m.Stages, ", "), 0, func() { u.runForm(Pipeline{Id: m.PipelineID, Name: fmt.Sprint(m.PipelineID)}, m) })
-	}
-	list.AddItem("Validate and launch group", "All members launch in parallel", 'r', func() {
-		cl := u.client
-		u.async(func() (func(), error) {
-			plans, e := cl.PrepareGroup(u.ctx, g)
-			return func() {
-				var b strings.Builder
-				fmt.Fprintf(&b, "Launch group %s in parallel?\n", g.Name)
-				for _, p := range plans {
-					fmt.Fprintf(&b, "%d · %s · %s\n", p.Options.PipelineID, p.Options.Branch, strings.Join(p.Included, ", "))
-				}
-				u.confirm(b.String(), func() {
-					u.async(func() (func(), error) {
-						results, e := cl.LaunchGroup(u.ctx, plans, 4)
-						return func() { u.groupResults(g, results, e) }, nil
-					})
-				})
-			}, e
-		})
-	})
-	list.AddItem("Delete group", "", 'd', func() {
-		u.confirm("Delete group "+g.Name+"?", func() {
-			for i, x := range u.config.Groups {
-				if x.Org == g.Org && x.Project == g.Project && x.Name == g.Name {
-					u.config.Groups = append(u.config.Groups[:i], u.config.Groups[i+1:]...)
-					break
-				}
-			}
-			if e := u.saveSettings(); e != nil {
-				u.reportError(e)
-				return
-			}
-			u.groupScreen()
-		})
-	})
-	list.AddItem("Back", "", 0, u.groupScreen)
-	u.show("group-detail", "Group · "+tview.Escape(g.Name), list)
 }
 func (u *terminalUI) groupResults(g Group, results []GroupResult, launchErr error) {
 	u.groupRuns = results
@@ -1203,22 +1226,18 @@ func (u *terminalUI) renderGroupResults(states map[int]string, initial bool) {
 	if launchErr != nil {
 		u.status(launchErr.Error() + " · Check run history before resubmitting.")
 	} else {
-		u.status("All members queued. Enter opens live run details.")
+		u.status("Group queued")
 	}
 }
 func (u *terminalUI) help() {
-	focus := u.app.GetFocus()
-	u.overlayFocus["help"] = focus
-	v := tview.NewModal().SetText("PIPELY\n\nArrows: fields/buttons · Enter: open/select\nSpace: checkbox · Esc: close/back · Ctrl-C: quit\nF4: tabs · Left/Right: choose tab · Down: content\nF2: copy text/row · Ctrl-Y: copy full error\nF3: toggle mouse capture (off enables text selection)\n\nPress : for the command bar (Shift+;)\nCommands: exit, help, pipelines, active, groups, refresh\nPipelines: Left/Right repository and pipeline panes\n/ command bar · n new run · r refresh\nSpace: select members · s save group · g groups\no organization/project · a auth · p approvals\n\nStages: Space toggle · a all · x clear\nDependencies are included automatically.\nEnter: review launch · s: save member options\n\nRun: Enter logs · e failure details · c cancel · R retry failed\nLogs and diagnostics: o opens links in your browser.\nNative terminal links support Ctrl/Cmd+click where available.\nLive status and logs refresh every 3 seconds.").AddButtons([]string{"Close"}).SetDoneFunc(func(int, string) { u.pages.RemovePage("help"); u.app.SetFocus(focus) })
-	u.pages.AddPage("help", v, false, true)
-	u.app.SetFocus(v)
+	u.messageDialog("help", "Help", "PIPELY\n\nArrows: fields/buttons · Enter: open/select\nSpace: checkbox · Esc: close/back · Ctrl-C: quit\nF4: tabs · Left/Right: choose tab · Down: content\nF2: copy text/row · Ctrl-Y: copy full error\nF3: toggle mouse capture (off enables text selection)\n\nPress : for the command bar (Shift+;)\nCommands: exit, help, pipelines, active, groups, refresh\nPipelines: Left/Right repository and pipeline panes\n/ command bar · n new run · r refresh\nSpace: select members · s save group · g groups\no organization/project · a auth · p approvals\n\nStages: Space toggle · a all · x clear\nEnter: review run / save group member\ns: save to group\n\nRun: Enter logs · e failure details · c cancel · R retry failed\nLogs and diagnostics: o opens links in your browser.\nNative terminal links support Ctrl/Cmd+click where available.\nLive status and logs refresh every 3 seconds.", []string{"Close"}, nil)
 }
 
 func (u *terminalUI) info(title, text string) {
 	focus := u.app.GetFocus()
 	u.overlayFocus["info"] = focus
 	view := tview.NewTextView().SetDynamicColors(true).SetText(hyperlinkText(text)).SetScrollable(true)
-	view.SetBorder(true).SetTitle(" " + title + " · o links · Esc close ")
+	title = strings.TrimSuffix(title, " · F2 copy")
 	view.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
 		if e.Rune() == 'o' {
 			u.linkPicker(text)
@@ -1231,7 +1250,7 @@ func (u *terminalUI) info(title, text string) {
 		}
 		return e
 	})
-	u.pages.AddPage("info", view, true, true)
+	u.pages.AddPage("info", newCenteredDialog(view, title), true, true)
 	u.app.SetFocus(view)
 }
 

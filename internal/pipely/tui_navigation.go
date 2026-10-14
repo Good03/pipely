@@ -47,8 +47,11 @@ func (u *terminalUI) input(e *tcell.EventKey) *tcell.EventKey {
 		u.status(fmt.Sprintf("Mouse capture: %t · disable to select text with your terminal mouse", u.mouseEnabled))
 		return nil
 	}
-	front, overlay := u.pages.GetFrontPage()
-	if front == "main" {
+	front, _ := u.pages.GetFrontPage()
+	if front == "main" && u.choosing && e.Key() == tcell.KeyF4 {
+		return nil
+	}
+	if front == "main" && !u.choosing {
 		if e.Key() == tcell.KeyRune && e.Rune() == ':' && !u.dropdownOpen() {
 			switch u.app.GetFocus().(type) {
 			case *tview.InputField, *tview.TextArea:
@@ -82,23 +85,9 @@ func (u *terminalUI) input(e *tcell.EventKey) *tcell.EventKey {
 			}
 		}
 	}
-	if front != "main" {
-		if _, ok := overlay.(*tview.Modal); ok {
-			switch e.Key() {
-			case tcell.KeyLeft, tcell.KeyUp:
-				return tcell.NewEventKey(tcell.KeyBacktab, 0, tcell.ModNone)
-			case tcell.KeyRight, tcell.KeyDown:
-				return tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)
-			}
-		}
-	}
 	if e.Key() == tcell.KeyEscape {
 		if front != "main" {
-			u.pages.RemovePage(front)
-			if f := u.overlayFocus[front]; f != nil {
-				u.app.SetFocus(f)
-			}
-			delete(u.overlayFocus, front)
+			u.closeOverlay(front)
 			return nil
 		}
 		if u.dropdownOpen() {
@@ -117,10 +106,16 @@ func (u *terminalUI) input(e *tcell.EventKey) *tcell.EventKey {
 		}
 		delta := 0
 		switch e.Key() {
-		case tcell.KeyUp:
+		case tcell.KeyUp, tcell.KeyBacktab:
 			delta = -1
-		case tcell.KeyDown:
+		case tcell.KeyDown, tcell.KeyTab:
 			delta = 1
+		case tcell.KeyEnter:
+			if item >= 0 {
+				if _, textInput := u.form.GetFormItem(item).(*tview.InputField); textInput {
+					delta = 1
+				}
+			}
 		case tcell.KeyLeft:
 			if button >= 0 {
 				delta = -1
@@ -130,11 +125,11 @@ func (u *terminalUI) input(e *tcell.EventKey) *tcell.EventKey {
 				delta = 1
 			}
 		}
-		total := u.form.GetFormItemCount() + u.form.GetButtonCount()
-		if delta != 0 && total > 0 {
-			index = (index + delta + total) % total
-			u.form.SetFocus(index)
-			u.app.SetFocus(u.form)
+		if delta != 0 {
+			if next, ok := nextFormControl(u.form, index, delta); ok {
+				u.form.SetFocus(next)
+				u.app.SetFocus(u.form)
+			}
 			return nil
 		}
 	}
@@ -143,8 +138,18 @@ func (u *terminalUI) input(e *tcell.EventKey) *tcell.EventKey {
 func (u *terminalUI) setBack(name string) {
 	u.back = nil
 	switch name {
-	case "contexts", "run-form", "save-group", "groups":
+	case "contexts", "save-group", "groups":
 		u.back = u.home
+	case "run-form":
+		u.back = func() {
+			if u.editingGroupName != "" {
+				if g, err := FindGroup(u.config, u.editingGroupName); err == nil {
+					u.groupDetail(g)
+					return
+				}
+			}
+			u.home()
+		}
 	case "context-form":
 		u.back = u.contextScreen
 	case "projects":

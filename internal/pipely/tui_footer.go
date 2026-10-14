@@ -17,6 +17,9 @@ func (u *terminalUI) updateHints() {
 		actions = "←→ Buttons   Space Toggle checkbox   Ctrl-Y Copy error"
 	case "stages":
 		actions = "Space Toggle   a All   x Clear   s Save to group   Ctrl-Y Copy error"
+		if u.editingGroupName != "" {
+			actions = "Space Toggle   a All   x Clear   Enter Save changes   Esc Back"
+		}
 	case "runs":
 		actions = "n New run   r Refresh   Ctrl-Y Copy error"
 	case "active-runs":
@@ -27,11 +30,17 @@ func (u *terminalUI) updateHints() {
 		actions = "f Follow / pause   e Failures   o Links   PgUp/PgDn Scroll"
 	case "groups":
 		actions = "← Projects   Enter Open group   r Refresh   Ctrl-Y Copy error"
+	case "contexts":
+		actions = "Enter Select project   n Add organization"
+	case "group-detail":
+		actions = "Enter Edit pipeline   r Review launch   d Delete group"
 	case "approvals":
 		actions = "r Refresh   Ctrl-Y Copy error"
 	}
 	if front, _ := u.pages.GetFrontPage(); front != "main" {
 		switch front {
+		case "help", "confirm":
+			actions = "←→ Buttons   ↑↓ Scroll   PgUp/PgDn Scroll   Esc Close"
 		case "info":
 			actions = "o Links   PgUp/PgDn Scroll   Ctrl-Y Copy error"
 		case "links":
@@ -43,7 +52,9 @@ func (u *terminalUI) updateHints() {
 	if u.tabs.HasFocus() {
 		actions = "←→ Choose tab   Enter Open tab   ↓ Return to content"
 	} else {
-		actions += "   : Command"
+		if !u.choosing {
+			actions += "   : Command"
+		}
 	}
 	if u.commandBar.HasFocus() {
 		actions = "Enter Execute / show matches   ↓ Content   ↑ Header   exit Quit"
