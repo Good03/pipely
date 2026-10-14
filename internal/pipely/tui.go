@@ -20,8 +20,15 @@ type terminalUI struct {
 	pages              *tview.Pages
 	body               *tview.Flex
 	header, footer     *tview.TextView
+	footerNotice       *tview.TextView
 	hints              *tview.TextView
 	commandBar         *tview.InputField
+	searchTarget       string
+	searchFocus        tview.Primitive
+	updatingCommandBar bool
+	projectFilter      string
+	repositoryFilter   string
+	pipelineFilter     string
 	renderPipelines    func()
 	ctx                context.Context
 	cancel             context.CancelFunc
@@ -73,7 +80,16 @@ type terminalUI struct {
 }
 
 func newTerminalUI(parent context.Context, cancel context.CancelFunc, c Config, path string) *terminalUI {
-	u := &terminalUI{app: tview.NewApplication(), ctx: parent, cancel: cancel, config: c, path: path, selected: map[int]bool{}, overlayFocus: map[string]tview.Primitive{}, copyText: nativeCopy, openURL: openBrowserLink}
+	u := &terminalUI{app: tview.NewApplication(),
+		ctx:          parent,
+		cancel:       cancel,
+		config:       c,
+		path:         path,
+		selected:     map[int]bool{},
+		overlayFocus: map[string]tview.Primitive{},
+		copyText:     nativeCopy,
+		openURL:      openBrowserLink,
+	}
 	tview.Styles.PrimitiveBackgroundColor = charcoal
 	tview.Styles.ContrastBackgroundColor = tcell.NewHexColor(0x30263e)
 	tview.Styles.MoreContrastBackgroundColor = charcoal
@@ -86,14 +102,29 @@ func newTerminalUI(parent context.Context, cancel context.CancelFunc, c Config, 
 	u.header = tview.NewTextView().SetDynamicColors(true)
 	u.footer = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true)
 	u.footer.SetBackgroundColor(charcoal)
+	u.footer.SetMouseCapture(u.runLinkMouse)
+	u.footerNotice = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true).SetTextAlign(tview.AlignRight)
+	u.footerNotice.SetBackgroundColor(charcoal)
+	u.footerNotice.SetTextColor(tview.Styles.SecondaryTextColor)
+	u.disclaimer()
+	u.footerNotice.SetMouseCapture(u.footerNoticeMouse)
 	u.hints = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true)
 	u.body = tview.NewFlex()
 	u.pages = tview.NewPages()
 	u.tabs = u.newTabs()
 	u.commandBar = u.newCommandBar()
-	layout := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(u.header, 1, 0, false).AddItem(u.tabs, 3, 0, false).AddItem(u.commandBar, 1, 0, false).AddItem(u.body, 0, 1, true).AddItem(u.footer, 2, 0, false).AddItem(u.hints, 2, 0, false)
+	layout := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(u.header, 1, 0, false).
+		AddItem(u.tabs, 3, 0, false).
+		AddItem(u.commandBar, 1, 0, false).
+		AddItem(u.body, 0, 1, true).
+		AddItem(u.footer, 2, 0, false).
+		AddItem(u.hints, 2, 0, false).
+		AddItem(u.footerNotice, 2, 0, false)
 	u.pages.AddPage("main", layout, true, true)
-	u.app.SetRoot(u.pages, true).EnableMouse(false)
+	u.mouseEnabled = true
+	u.app.SetRoot(u.pages, true).EnableMouse(u.mouseEnabled)
 	u.app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
 		u.terminalScreen = screen
 		u.updateHints()
@@ -149,6 +180,7 @@ func RunTui(c Config) {
 	}
 }
 func (u *terminalUI) show(name, title string, widget tview.Primitive) {
+	u.resetSearchMode()
 	if u.screenCancel != nil {
 		u.screenCancel()
 	}
@@ -257,7 +289,6 @@ func vimTable(t *tview.Table, e *tcell.EventKey) *tcell.EventKey {
 func (u *terminalUI) home() {
 	u.editingGroupName = ""
 	t := table()
-	bar := u.commandBar
 	repoTable := table()
 	u.repoTable = repoTable
 	u.pipelineTable = t
@@ -268,7 +299,7 @@ func (u *terminalUI) home() {
 		t.Clear()
 		headers(t, "Group", "ID", "Pipeline")
 		for _, p := range filterRepositoryPipelines(u.pipelines, u.selectedRepoID) {
-			if !strings.Contains(strings.ToLower(p.Name), strings.ToLower(bar.GetText())) {
+			if !matchesSearch(p.Name, u.pipelineFilter) {
 				continue
 			}
 			mark := "[ ]"
@@ -293,24 +324,40 @@ func (u *terminalUI) home() {
 		}
 	}
 	u.renderPipelines = render
+	renderingRepositories := false
 	u.renderRepositories = func() {
+		renderingRepositories = true
+		defer func() { renderingRepositories = false }()
 		repoTable.Clear()
 		headers(repoTable, "Repository")
-		repoTable.SetCell(1, 0, cell("All repositories").SetReference(""))
+		if matchesSearch("All repositories", u.repositoryFilter) {
+			repoTable.SetCell(1, 0, cell("All repositories").SetReference(""))
+		}
 		selectedRow := 1
-		for i, r := range u.repositories {
-			repoTable.SetCell(i+2, 0, cell(r.Name).SetReference(r.Id))
+		found := u.selectedRepoID == ""
+		for _, r := range u.repositories {
+			found = found || r.Id == u.selectedRepoID
+			if !matchesSearch(r.Name, u.repositoryFilter) {
+				continue
+			}
+			row := repoTable.GetRowCount()
+			repoTable.SetCell(row, 0, cell(r.Name).SetReference(r.Id))
 			if r.Id == u.selectedRepoID {
-				selectedRow = i + 2
+				selectedRow = row
 			}
 		}
-		if selectedRow == 1 {
+		if !found {
 			u.selectedRepoID = ""
 		}
 		prepareTable(repoTable)
-		repoTable.Select(selectedRow, 0)
+		if repoTable.GetRowCount() > 1 {
+			repoTable.Select(selectedRow, 0)
+		}
 	}
 	repoTable.SetSelectionChangedFunc(func(row, _ int) {
+		if renderingRepositories {
+			return
+		}
 		if row < 1 || row >= repoTable.GetRowCount() {
 			return
 		}
@@ -363,9 +410,6 @@ func (u *terminalUI) home() {
 			return nil
 		}
 		switch e.Rune() {
-		case '/':
-			u.app.SetFocus(bar)
-			return nil
 		case ' ':
 			if p, ok := current(); ok {
 				u.selected[p.Id] = !u.selected[p.Id]
@@ -375,6 +419,11 @@ func (u *terminalUI) home() {
 		case 'n':
 			if p, ok := current(); ok {
 				u.runForm(p, RunOptions{PipelineID: p.Id})
+			}
+			return nil
+		case 'y':
+			if p, ok := current(); ok {
+				u.pipelineYAML(p)
 			}
 			return nil
 		case 's':
@@ -609,7 +658,7 @@ func (u *terminalUI) loadRuns() {
 				t.SetCell(i+1, 0, cell(strconv.Itoa(b.ID)))
 				t.SetCell(i+1, 1, cell(b.BuildNumber))
 				t.SetCell(i+1, 2, cell(b.State()))
-				t.SetCell(i+1, 3, cell(b.SourceBranch))
+				t.SetCell(i+1, 3, cell(strings.TrimPrefix(b.SourceBranch, "refs/heads/")))
 			}
 			t.SetSelectedFunc(func(row, _ int) {
 				if row > 0 && row <= len(runs) {
@@ -632,6 +681,11 @@ func (u *terminalUI) loadRuns() {
 				}
 				return vimTable(t, e)
 			})
+			ids := make([]int, len(runs))
+			for i, run := range runs {
+				ids[i] = run.ID
+			}
+			u.addRunLinks(t, 4, ids)
 			u.replace(t)
 			u.status("Latest five runs + active runs")
 		}, e
@@ -1218,6 +1272,11 @@ func (u *terminalUI) renderGroupResults(states map[int]string, initial bool) {
 		}
 		return vimTable(t, e)
 	})
+	ids := make([]int, len(results))
+	for i, result := range results {
+		ids[i] = result.RunID
+	}
+	u.addRunLinks(t, 3, ids)
 	if initial {
 		u.show("group-results", "Group · "+tview.Escape(g.Name), t)
 	} else {
@@ -1230,7 +1289,7 @@ func (u *terminalUI) renderGroupResults(states map[int]string, initial bool) {
 	}
 }
 func (u *terminalUI) help() {
-	u.messageDialog("help", "Help", "PIPELY\n\nArrows: fields/buttons · Enter: open/select\nSpace: checkbox · Esc: close/back · Ctrl-C: quit\nF4: tabs · Left/Right: choose tab · Down: content\nF2: copy text/row · Ctrl-Y: copy full error\nF3: toggle mouse capture (off enables text selection)\n\nPress : for the command bar (Shift+;)\nCommands: exit, help, pipelines, active, groups, refresh\nPipelines: Left/Right repository and pipeline panes\n/ command bar · n new run · r refresh\nSpace: select members · s save group · g groups\no organization/project · a auth · p approvals\n\nStages: Space toggle · a all · x clear\nEnter: review run / save group member\ns: save to group\n\nRun: Enter logs · e failure details · c cancel · R retry failed\nLogs and diagnostics: o opens links in your browser.\nNative terminal links support Ctrl/Cmd+click where available.\nLive status and logs refresh every 3 seconds.", []string{"Close"}, nil)
+	u.messageDialog("help", "Help", "PIPELY\n\nArrows: fields/buttons · Enter: open/select\nSpace: checkbox · Esc: close/back · Ctrl-C: quit\nF4: tabs · Left/Right: choose tab · Down: content\nF2: copy text/row · Ctrl-Y: copy full error\nF3: toggle mouse capture (off enables text selection)\n\nPress : for the command bar (Shift+;)\nCommands: exit, help, pipelines, active, groups, refresh\nPipelines: Left/Right repository and pipeline panes\n/ search focused list · : commands\nEnter: results · Esc: clear search\nn new run · y YAML · r refresh\nSpace: select members · s save group · g groups\no organization/project · a auth · p approvals\n\nStages: Space toggle · a all · x clear\nEnter: review run / save group member\ns: save to group\n\nRun tables/details/logs: b opens run in Azure DevOps\nRun: Enter logs · e failure details · c cancel · R retry failed\nLogs and diagnostics: o opens links in your browser.\nNative terminal links support Ctrl/Cmd+click where available.\nLive status and logs refresh every 3 seconds.", []string{"Close"}, nil)
 }
 
 func (u *terminalUI) info(title, text string) {

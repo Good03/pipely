@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -12,7 +13,9 @@ func (u *terminalUI) updateHints() {
 	actions := "Ctrl-Y Copy error   F3 Mouse capture"
 	switch u.screen {
 	case "pipelines":
-		actions = "←→ Panes   n New run   Space Mark   s Group   g Groups"
+		actions = "←→ Panes   n New run   y YAML   Space Mark   s Group"
+	case "yaml":
+		actions = "PgUp/PgDn Scroll   F2 Copy YAML   Esc Back"
 	case "run-form", "auth", "context-form", "save-group":
 		actions = "←→ Buttons   Space Toggle checkbox   Ctrl-Y Copy error"
 	case "stages":
@@ -21,13 +24,15 @@ func (u *terminalUI) updateHints() {
 			actions = "Space Toggle   a All   x Clear   Enter Save changes   Esc Back"
 		}
 	case "runs":
-		actions = "n New run   r Refresh   Ctrl-Y Copy error"
+		actions = "b Open ADO   n New run   r Refresh"
 	case "active-runs":
-		actions = "← Projects   Enter Open run   r Refresh   Ctrl-Y Copy error"
+		actions = "← Projects   b Open ADO   r Refresh"
 	case "timeline":
-		actions = "e Failure details   c Cancel   R Retry   p Approvals"
+		actions = "b Open ADO   e Failures   c Cancel   R Retry   p Approvals"
 	case "logs":
-		actions = "f Follow / pause   e Failures   o Links   PgUp/PgDn Scroll"
+		actions = "b Open ADO   f Follow   e Failures   o Links   PgUp/PgDn Scroll"
+	case "group-results":
+		actions = "Enter Open run   b Open ADO"
 	case "groups":
 		actions = "← Projects   Enter Open group   r Refresh   Ctrl-Y Copy error"
 	case "contexts":
@@ -56,8 +61,14 @@ func (u *terminalUI) updateHints() {
 			actions += "   : Command"
 		}
 	}
+	if (u.projectTable != nil && u.projectTable.HasFocus()) || (u.screen == "pipelines" && ((u.repoTable != nil && u.repoTable.HasFocus()) || (u.pipelineTable != nil && u.pipelineTable.HasFocus()))) {
+		actions = "/ Search   " + actions
+	}
 	if u.commandBar.HasFocus() {
 		actions = "Enter Execute / show matches   ↓ Content   ↑ Header   exit Quit"
+		if u.searchTarget != "" {
+			actions = "Enter/↓ Results   Esc Clear search"
+		}
 	}
 	shortcuts := strings.Split(actions, "   ")
 	for i, shortcut := range shortcuts {
@@ -77,7 +88,39 @@ func (u *terminalUI) reportError(err error) {
 }
 func (u *terminalUI) status(s string) {
 	u.footer.SetText("[#b694ff::b] STATUS [-:-:-]  " + tview.Escape(s))
+	if (u.screen == "timeline" || u.screen == "logs") && u.client != nil && u.build.ID > 0 {
+		u.footer.SetText(u.footer.GetText(false) + " · [::u:" + u.client.RunURL(u.build.ID) + "]Open in ADO[::U:-]")
+	}
 }
+
+func (u *terminalUI) runLinkMouse(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+	x, y := event.Position()
+	if action == tview.MouseLeftClick && u.terminalScreen != nil && u.footer.InRect(x, y) && u.client != nil && u.build.ID > 0 && (u.screen == "timeline" || u.screen == "logs") {
+		_, _, style, _ := u.terminalScreen.GetContent(x, y)
+		if style.Url("") != style && style.Url(u.client.RunURL(u.build.ID)) == style {
+			u.openRun(u.build.ID)
+		}
+	}
+	return action, nil
+}
+
+const githubIssuesURL = "https://github.com/Good03/pipely/issues"
+
+func (u *terminalUI) disclaimer() {
+	u.footerNotice.SetText("Early version of Pipely.\nReport bugs on [::u:" + githubIssuesURL + "]GitHub[::U:-].")
+}
+
+func (u *terminalUI) footerNoticeMouse(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+	x, y := event.Position()
+	if action == tview.MouseLeftClick && u.terminalScreen != nil && u.footerNotice.InRect(x, y) {
+		_, _, style, _ := u.terminalScreen.GetContent(x, y)
+		if style.Url("") != style && style.Url(githubIssuesURL) == style {
+			u.openLink(githubIssuesURL)
+		}
+	}
+	return action, nil
+}
+
 func (u *terminalUI) title() {
 	u.header.SetText(fmt.Sprintf("[#b694ff::b] PIPELY [-:-:-]  %s / %s", tview.Escape(u.config.Org), tview.Escape(u.config.Project)))
 }

@@ -84,7 +84,10 @@ Selecting a stage automatically includes its prerequisites.
 | `Esc` | Close a dropdown or dialog, or go back. |
 | `F4` | Focus tabs; Left/Right and Enter switch tabs. |
 | `:` | Open the command bar; type `exit` to quit. |
+| `/` | Search the focused project, repository, or pipeline list by name. Enter returns to results; Esc clears the search. |
 | `F2` / `Ctrl-Y` | Copy focused text / last error. |
+| `y` | View the selected pipeline's YAML on the repository default branch (Azure Repos). |
+| `b` | Open the selected run in Azure DevOps, including from run details and logs. |
 | `F1` | Show help and more shortcuts. |
 
 The sidebar lists accessible projects in the selected organization above the
@@ -95,6 +98,7 @@ The **Active runs** and **Groups** tabs also have a project sidebar. Press Left
 to focus it and Enter on a project to filter the current tab. New groups belong
 to the project whose pipelines you selected; the save form shows the assignment.
 In logs, press `o` to open links and `f` to toggle following.
+Run tables also include a clickable **ADO** link.
 
 ## CLI
 

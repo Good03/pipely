@@ -48,18 +48,34 @@ func (u *terminalUI) input(e *tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 	front, _ := u.pages.GetFrontPage()
+	if front == "main" && u.commandBar.HasFocus() && e.Key() == tcell.KeyEscape {
+		if u.searchTarget != "" {
+			u.leaveSearch(true)
+		} else if u.content != nil {
+			u.app.SetFocus(u.content)
+		}
+		return nil
+	}
 	if front == "main" && u.choosing && e.Key() == tcell.KeyF4 {
 		return nil
 	}
 	if front == "main" && !u.choosing {
+		if e.Key() == tcell.KeyRune && e.Rune() == '/' && u.beginSearch() {
+			return nil
+		}
 		if e.Key() == tcell.KeyRune && e.Rune() == ':' && !u.dropdownOpen() {
 			switch u.app.GetFocus().(type) {
 			case *tview.InputField, *tview.TextArea:
 			default:
+				u.resetSearchMode()
 				u.commandBar.SetText("")
 				u.app.SetFocus(u.commandBar)
 				return nil
 			}
+		}
+		if e.Key() == tcell.KeyRune && e.Rune() == 'b' && (u.screen == "timeline" || u.screen == "logs") && u.app.GetFocus() == u.content {
+			u.openRun(u.build.ID)
+			return nil
 		}
 		if u.app.GetFocus() == u.tabs {
 			return e
@@ -162,7 +178,7 @@ func (u *terminalUI) setBack(name string) {
 				u.contextForm()
 			}
 		}
-	case "runs", "active-runs":
+	case "runs", "active-runs", "yaml":
 		u.back = u.home
 	case "timeline":
 		u.back = func() {
