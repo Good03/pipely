@@ -10,12 +10,24 @@ import (
 func (u *terminalUI) newCommandBar() *tview.InputField {
 	bar := tview.NewInputField().SetLabel(" : Command ").SetPlaceholder("Type to filter pipelines; Enter executes exit, help, active, groups…")
 	bar.SetLabelColor(purple)
-	bar.SetChangedFunc(func(string) {
+	bar.SetChangedFunc(func(text string) {
+		if u.updatingCommandBar {
+			return
+		}
+		if u.searchTarget != "" {
+			u.applySearch(text)
+			return
+		}
+		u.pipelineFilter = text
 		if u.screen == "pipelines" && u.renderPipelines != nil {
 			u.renderPipelines()
 		}
 	})
 	bar.SetDoneFunc(func(key tcell.Key) {
+		if u.searchTarget != "" {
+			u.leaveSearch(key == tcell.KeyEscape)
+			return
+		}
 		if key == tcell.KeyEnter && u.executeCommand(bar.GetText()) {
 			return
 		}
@@ -27,6 +39,10 @@ func (u *terminalUI) newCommandBar() *tview.InputField {
 	})
 	bar.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
 		if e.Key() == tcell.KeyDown {
+			if u.searchTarget != "" {
+				u.leaveSearch(false)
+				return nil
+			}
 			if u.content != nil {
 				u.app.SetFocus(u.content)
 			}

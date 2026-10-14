@@ -70,19 +70,18 @@ func TestTUISearchAndNavigation(t *testing.T) {
 	u.pipelines = []Pipeline{{Id: 1, Name: "orders"}, {Id: 2, Name: "payments"}}
 	u.home()
 	table := u.app.GetFocus().(*tview.Table)
-	capture := table.GetInputCapture()
-	capture(tcell.NewEventKey(tcell.KeyRune, '/', tcell.ModNone))
+	sendUI(u, tcell.KeyRune, '/')
 	search := u.app.GetFocus().(*tview.InputField)
 	search.SetText("payment")
 	if table.GetRowCount() != 2 || table.GetCell(1, 2).Text != "payments" {
 		t.Fatal("search did not filter")
 	}
-	search.InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone), func(p tview.Primitive) { u.app.SetFocus(p) })
-	capture(tcell.NewEventKey(tcell.KeyRune, ' ', tcell.ModNone))
+	sendUI(u, tcell.KeyEnter, 0)
+	sendUI(u, tcell.KeyRune, ' ')
 	if !u.selected[2] || u.selected[1] {
 		t.Fatal("wrong pipeline selected")
 	}
-	capture(tcell.NewEventKey(tcell.KeyRune, 'o', tcell.ModNone))
+	sendUI(u, tcell.KeyRune, 'o')
 	if u.screen != "contexts" {
 		t.Fatal("context switch unavailable")
 	}

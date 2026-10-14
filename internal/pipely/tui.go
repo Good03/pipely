@@ -23,6 +23,12 @@ type terminalUI struct {
 	footerNotice       *tview.TextView
 	hints              *tview.TextView
 	commandBar         *tview.InputField
+	searchTarget       string
+	searchFocus        tview.Primitive
+	updatingCommandBar bool
+	projectFilter      string
+	repositoryFilter   string
+	pipelineFilter     string
 	renderPipelines    func()
 	ctx                context.Context
 	cancel             context.CancelFunc
@@ -96,6 +102,7 @@ func newTerminalUI(parent context.Context, cancel context.CancelFunc, c Config, 
 	u.header = tview.NewTextView().SetDynamicColors(true)
 	u.footer = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true)
 	u.footer.SetBackgroundColor(charcoal)
+	u.footer.SetMouseCapture(u.runLinkMouse)
 	u.footerNotice = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true).SetTextAlign(tview.AlignRight)
 	u.footerNotice.SetBackgroundColor(charcoal)
 	u.footerNotice.SetTextColor(tview.Styles.SecondaryTextColor)
@@ -173,6 +180,7 @@ func RunTui(c Config) {
 	}
 }
 func (u *terminalUI) show(name, title string, widget tview.Primitive) {
+	u.resetSearchMode()
 	if u.screenCancel != nil {
 		u.screenCancel()
 	}
@@ -281,7 +289,6 @@ func vimTable(t *tview.Table, e *tcell.EventKey) *tcell.EventKey {
 func (u *terminalUI) home() {
 	u.editingGroupName = ""
 	t := table()
-	bar := u.commandBar
 	repoTable := table()
 	u.repoTable = repoTable
 	u.pipelineTable = t
@@ -292,7 +299,7 @@ func (u *terminalUI) home() {
 		t.Clear()
 		headers(t, "Group", "ID", "Pipeline")
 		for _, p := range filterRepositoryPipelines(u.pipelines, u.selectedRepoID) {
-			if !strings.Contains(strings.ToLower(p.Name), strings.ToLower(bar.GetText())) {
+			if !matchesSearch(p.Name, u.pipelineFilter) {
 				continue
 			}
 			mark := "[ ]"
@@ -317,24 +324,40 @@ func (u *terminalUI) home() {
 		}
 	}
 	u.renderPipelines = render
+	renderingRepositories := false
 	u.renderRepositories = func() {
+		renderingRepositories = true
+		defer func() { renderingRepositories = false }()
 		repoTable.Clear()
 		headers(repoTable, "Repository")
-		repoTable.SetCell(1, 0, cell("All repositories").SetReference(""))
+		if matchesSearch("All repositories", u.repositoryFilter) {
+			repoTable.SetCell(1, 0, cell("All repositories").SetReference(""))
+		}
 		selectedRow := 1
-		for i, r := range u.repositories {
-			repoTable.SetCell(i+2, 0, cell(r.Name).SetReference(r.Id))
+		found := u.selectedRepoID == ""
+		for _, r := range u.repositories {
+			found = found || r.Id == u.selectedRepoID
+			if !matchesSearch(r.Name, u.repositoryFilter) {
+				continue
+			}
+			row := repoTable.GetRowCount()
+			repoTable.SetCell(row, 0, cell(r.Name).SetReference(r.Id))
 			if r.Id == u.selectedRepoID {
-				selectedRow = i + 2
+				selectedRow = row
 			}
 		}
-		if selectedRow == 1 {
+		if !found {
 			u.selectedRepoID = ""
 		}
 		prepareTable(repoTable)
-		repoTable.Select(selectedRow, 0)
+		if repoTable.GetRowCount() > 1 {
+			repoTable.Select(selectedRow, 0)
+		}
 	}
 	repoTable.SetSelectionChangedFunc(func(row, _ int) {
+		if renderingRepositories {
+			return
+		}
 		if row < 1 || row >= repoTable.GetRowCount() {
 			return
 		}
@@ -387,9 +410,6 @@ func (u *terminalUI) home() {
 			return nil
 		}
 		switch e.Rune() {
-		case '/':
-			u.app.SetFocus(bar)
-			return nil
 		case ' ':
 			if p, ok := current(); ok {
 				u.selected[p.Id] = !u.selected[p.Id]
@@ -399,6 +419,11 @@ func (u *terminalUI) home() {
 		case 'n':
 			if p, ok := current(); ok {
 				u.runForm(p, RunOptions{PipelineID: p.Id})
+			}
+			return nil
+		case 'y':
+			if p, ok := current(); ok {
+				u.pipelineYAML(p)
 			}
 			return nil
 		case 's':
@@ -656,6 +681,11 @@ func (u *terminalUI) loadRuns() {
 				}
 				return vimTable(t, e)
 			})
+			ids := make([]int, len(runs))
+			for i, run := range runs {
+				ids[i] = run.ID
+			}
+			u.addRunLinks(t, 4, ids)
 			u.replace(t)
 			u.status("Latest five runs + active runs")
 		}, e
@@ -1242,6 +1272,11 @@ func (u *terminalUI) renderGroupResults(states map[int]string, initial bool) {
 		}
 		return vimTable(t, e)
 	})
+	ids := make([]int, len(results))
+	for i, result := range results {
+		ids[i] = result.RunID
+	}
+	u.addRunLinks(t, 3, ids)
 	if initial {
 		u.show("group-results", "Group · "+tview.Escape(g.Name), t)
 	} else {
@@ -1254,7 +1289,7 @@ func (u *terminalUI) renderGroupResults(states map[int]string, initial bool) {
 	}
 }
 func (u *terminalUI) help() {
-	u.messageDialog("help", "Help", "PIPELY\n\nArrows: fields/buttons · Enter: open/select\nSpace: checkbox · Esc: close/back · Ctrl-C: quit\nF4: tabs · Left/Right: choose tab · Down: content\nF2: copy text/row · Ctrl-Y: copy full error\nF3: toggle mouse capture (off enables text selection)\n\nPress : for the command bar (Shift+;)\nCommands: exit, help, pipelines, active, groups, refresh\nPipelines: Left/Right repository and pipeline panes\n/ command bar · n new run · r refresh\nSpace: select members · s save group · g groups\no organization/project · a auth · p approvals\n\nStages: Space toggle · a all · x clear\nEnter: review run / save group member\ns: save to group\n\nRun: Enter logs · e failure details · c cancel · R retry failed\nLogs and diagnostics: o opens links in your browser.\nNative terminal links support Ctrl/Cmd+click where available.\nLive status and logs refresh every 3 seconds.", []string{"Close"}, nil)
+	u.messageDialog("help", "Help", "PIPELY\n\nArrows: fields/buttons · Enter: open/select\nSpace: checkbox · Esc: close/back · Ctrl-C: quit\nF4: tabs · Left/Right: choose tab · Down: content\nF2: copy text/row · Ctrl-Y: copy full error\nF3: toggle mouse capture (off enables text selection)\n\nPress : for the command bar (Shift+;)\nCommands: exit, help, pipelines, active, groups, refresh\nPipelines: Left/Right repository and pipeline panes\n/ search focused list · : commands\nEnter: results · Esc: clear search\nn new run · y YAML · r refresh\nSpace: select members · s save group · g groups\no organization/project · a auth · p approvals\n\nStages: Space toggle · a all · x clear\nEnter: review run / save group member\ns: save to group\n\nRun tables/details/logs: b opens run in Azure DevOps\nRun: Enter logs · e failure details · c cancel · R retry failed\nLogs and diagnostics: o opens links in your browser.\nNative terminal links support Ctrl/Cmd+click where available.\nLive status and logs refresh every 3 seconds.", []string{"Close"}, nil)
 }
 
 func (u *terminalUI) info(title, text string) {

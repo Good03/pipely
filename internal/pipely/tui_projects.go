@@ -36,16 +36,20 @@ func (u *terminalUI) newProjectPane(pipelines, repositories *tview.Table) *tview
 			return strings.ToLower(projects[i].Name) < strings.ToLower(projects[j].Name)
 		})
 		selected := 1
-		for i, p := range projects {
+		for _, p := range projects {
+			if !matchesSearch(p.Name, u.projectFilter) {
+				continue
+			}
+			row := t.GetRowCount()
 			label := p.Name
 			if p.Name == u.config.Project || p.Id == u.config.Project {
 				label = "● " + label
-				selected = i + 1
+				selected = row
 			}
-			t.SetCell(i+1, 0, cell(label).SetReference(p))
+			t.SetCell(row, 0, cell(label).SetReference(p))
 		}
 		prepareTable(t)
-		if len(projects) > 0 {
+		if t.GetRowCount() > 1 {
 			t.Select(selected, 0)
 		}
 	}
@@ -105,6 +109,7 @@ func (u *terminalUI) switchProject(name string) {
 	u.selected = map[int]bool{}
 	u.pipelines, u.repositories = nil, nil
 	u.selectedRepoID = ""
+	u.repositoryFilter, u.pipelineFilter = "", ""
 	u.repositoryNotice = ""
 	if u.client == nil {
 		u.connect()

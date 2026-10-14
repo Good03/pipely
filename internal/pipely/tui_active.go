@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -108,7 +109,7 @@ func (u *terminalUI) renderActiveRuns(runs []Build) {
 		t.SetCell(i+1, 0, cell(strconv.Itoa(b.ID)))
 		t.SetCell(i+1, 1, cell(b.Definition.Name))
 		t.SetCell(i+1, 2, cell(b.State()))
-		t.SetCell(i+1, 3, cell(b.SourceBranch))
+		t.SetCell(i+1, 3, cell(strings.TrimPrefix(b.SourceBranch, "refs/heads/")))
 	}
 	t.SetSelectedFunc(func(row, _ int) {
 		if row > 0 && row <= len(runs) {
@@ -129,6 +130,11 @@ func (u *terminalUI) renderActiveRuns(runs []Build) {
 		}
 		return vimTable(t, e)
 	})
+	ids := make([]int, len(runs))
+	for i, run := range runs {
+		ids[i] = run.ID
+	}
+	u.addRunLinks(t, 4, ids)
 	u.replace(t)
 	u.status(fmt.Sprintf("%d active runs · %s", len(runs), u.config.Project))
 }

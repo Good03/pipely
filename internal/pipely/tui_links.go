@@ -17,6 +17,42 @@ import (
 
 var logURLPattern = regexp.MustCompile(`(?i)https?://[^\s<>"'\x00-\x1f\x7f]+`)
 
+// addRunLinks shares the browser action between run tables while preserving
+// their Enter action and other keyboard controls.
+func (u *terminalUI) addRunLinks(t *tview.Table, column int, ids []int) {
+	t.SetCell(0, column, cell("ADO").SetTextColor(purple).SetSelectable(false))
+	for i, id := range ids {
+		if id <= 0 || u.client == nil {
+			t.SetCell(i+1, column, cell(""))
+			continue
+		}
+		target := u.client.RunURL(id)
+		link := cell("").SetText("[::u:" + target + "]Open[::U:-]").SetExpansion(0)
+		link.Clicked = func() bool { u.openLink(target); return true }
+		t.SetCell(i+1, column, link)
+	}
+	capture := t.GetInputCapture()
+	t.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
+		if e.Key() == tcell.KeyRune && e.Rune() == 'b' {
+			row, _ := t.GetSelection()
+			if row > 0 && row <= len(ids) {
+				u.openRun(ids[row-1])
+			}
+			return nil
+		}
+		if capture != nil {
+			return capture(e)
+		}
+		return e
+	})
+}
+
+func (u *terminalUI) openRun(id int) {
+	if u.client != nil && id > 0 {
+		u.openLink(u.client.RunURL(id))
+	}
+}
+
 func trimLogURL(s string) string {
 	s = strings.TrimRight(s, ".,;!")
 	for len(s) > 0 {
