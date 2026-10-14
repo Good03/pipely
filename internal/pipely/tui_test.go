@@ -240,7 +240,7 @@ func TestFooterFitsStandardTerminal(t *testing.T) {
 	u.app.ForceDraw()
 	contents, width, height := screen.GetContents()
 	lines := []string{}
-	for y := height - 4; y < height; y++ {
+	for y := height - 6; y < height; y++ {
 		var line strings.Builder
 		for x := 0; x < width; x++ {
 			c := contents[y*width+x]

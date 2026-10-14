@@ -20,6 +20,7 @@ type terminalUI struct {
 	pages              *tview.Pages
 	body               *tview.Flex
 	header, footer     *tview.TextView
+	footerNotice       *tview.TextView
 	hints              *tview.TextView
 	commandBar         *tview.InputField
 	renderPipelines    func()
@@ -73,7 +74,16 @@ type terminalUI struct {
 }
 
 func newTerminalUI(parent context.Context, cancel context.CancelFunc, c Config, path string) *terminalUI {
-	u := &terminalUI{app: tview.NewApplication(), ctx: parent, cancel: cancel, config: c, path: path, selected: map[int]bool{}, overlayFocus: map[string]tview.Primitive{}, copyText: nativeCopy, openURL: openBrowserLink}
+	u := &terminalUI{app: tview.NewApplication(),
+		ctx:          parent,
+		cancel:       cancel,
+		config:       c,
+		path:         path,
+		selected:     map[int]bool{},
+		overlayFocus: map[string]tview.Primitive{},
+		copyText:     nativeCopy,
+		openURL:      openBrowserLink,
+	}
 	tview.Styles.PrimitiveBackgroundColor = charcoal
 	tview.Styles.ContrastBackgroundColor = tcell.NewHexColor(0x30263e)
 	tview.Styles.MoreContrastBackgroundColor = charcoal
@@ -86,14 +96,28 @@ func newTerminalUI(parent context.Context, cancel context.CancelFunc, c Config, 
 	u.header = tview.NewTextView().SetDynamicColors(true)
 	u.footer = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true)
 	u.footer.SetBackgroundColor(charcoal)
+	u.footerNotice = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true).SetTextAlign(tview.AlignRight)
+	u.footerNotice.SetBackgroundColor(charcoal)
+	u.footerNotice.SetTextColor(tview.Styles.SecondaryTextColor)
+	u.disclaimer()
+	u.footerNotice.SetMouseCapture(u.footerNoticeMouse)
 	u.hints = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true)
 	u.body = tview.NewFlex()
 	u.pages = tview.NewPages()
 	u.tabs = u.newTabs()
 	u.commandBar = u.newCommandBar()
-	layout := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(u.header, 1, 0, false).AddItem(u.tabs, 3, 0, false).AddItem(u.commandBar, 1, 0, false).AddItem(u.body, 0, 1, true).AddItem(u.footer, 2, 0, false).AddItem(u.hints, 2, 0, false)
+	layout := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(u.header, 1, 0, false).
+		AddItem(u.tabs, 3, 0, false).
+		AddItem(u.commandBar, 1, 0, false).
+		AddItem(u.body, 0, 1, true).
+		AddItem(u.footer, 2, 0, false).
+		AddItem(u.hints, 2, 0, false).
+		AddItem(u.footerNotice, 2, 0, false)
 	u.pages.AddPage("main", layout, true, true)
-	u.app.SetRoot(u.pages, true).EnableMouse(false)
+	u.mouseEnabled = true
+	u.app.SetRoot(u.pages, true).EnableMouse(u.mouseEnabled)
 	u.app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
 		u.terminalScreen = screen
 		u.updateHints()
@@ -609,7 +633,7 @@ func (u *terminalUI) loadRuns() {
 				t.SetCell(i+1, 0, cell(strconv.Itoa(b.ID)))
 				t.SetCell(i+1, 1, cell(b.BuildNumber))
 				t.SetCell(i+1, 2, cell(b.State()))
-				t.SetCell(i+1, 3, cell(b.SourceBranch))
+				t.SetCell(i+1, 3, cell(strings.TrimPrefix(b.SourceBranch, "refs/heads/")))
 			}
 			t.SetSelectedFunc(func(row, _ int) {
 				if row > 0 && row <= len(runs) {

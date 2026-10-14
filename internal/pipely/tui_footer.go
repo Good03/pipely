@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -78,6 +79,24 @@ func (u *terminalUI) reportError(err error) {
 func (u *terminalUI) status(s string) {
 	u.footer.SetText("[#b694ff::b] STATUS [-:-:-]  " + tview.Escape(s))
 }
+
+const githubIssuesURL = "https://github.com/Good03/pipely/issues"
+
+func (u *terminalUI) disclaimer() {
+	u.footerNotice.SetText("Early version of Pipely.\nReport bugs on [::u:" + githubIssuesURL + "]GitHub[::U:-].")
+}
+
+func (u *terminalUI) footerNoticeMouse(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+	x, y := event.Position()
+	if action == tview.MouseLeftClick && u.terminalScreen != nil && u.footerNotice.InRect(x, y) {
+		_, _, style, _ := u.terminalScreen.GetContent(x, y)
+		if style.Url("") != style && style.Url(githubIssuesURL) == style {
+			u.openLink(githubIssuesURL)
+		}
+	}
+	return action, nil
+}
+
 func (u *terminalUI) title() {
 	u.header.SetText(fmt.Sprintf("[#b694ff::b] PIPELY [-:-:-]  %s / %s", tview.Escape(u.config.Org), tview.Escape(u.config.Project)))
 }

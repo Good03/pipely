@@ -33,11 +33,11 @@ func TestNativeLogHyperlinksPreservePlainText(t *testing.T) {
 	if got := view.GetText(true); got != text {
 		t.Fatalf("copy text changed: %q", got)
 	}
-	width, height := screen.Size()
+	x, y, width, height := view.GetInnerRect()
 	var linked strings.Builder
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			r, _, style, _ := screen.GetContent(x, y)
+	for row := y; row < y+height; row++ {
+		for col := x; col < x+width; col++ {
+			r, _, style, _ := screen.GetContent(col, row)
 			if style.Url("") != style {
 				linked.WriteRune(r)
 			}
