@@ -18,7 +18,7 @@ func (u *terminalUI) loadRunForm(p Pipeline, opts RunOptions, branches []string)
 	opts.Branch = strings.TrimPrefix(opts.Branch, "refs/heads/")
 	f := tview.NewForm()
 	initializing := true
-	if len(branches) > 0 {
+	if len(branches) > 0 && u.editingGroupName == "" {
 		index := 0
 		for i, b := range branches {
 			if b == opts.Branch {
@@ -75,7 +75,13 @@ func (u *terminalUI) renderRunForm(p Pipeline, opts RunOptions, m Metadata) {
 		}
 	}
 	initializing := true
-	if len(m.Branches) > 0 {
+	if u.editingGroupName != "" {
+		label := branch
+		if label == "" {
+			label = "Azure default branch"
+		}
+		form.AddTextView("Branch", label, 60, 1, false, false)
+	} else if len(m.Branches) > 0 {
 		form.AddDropDown("Branch", m.Branches, selected, func(s string, _ int) {
 			if initializing || s == branch {
 				return

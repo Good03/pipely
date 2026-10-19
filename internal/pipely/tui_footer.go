@@ -38,7 +38,7 @@ func (u *terminalUI) updateHints() {
 	case "contexts":
 		actions = "Enter Select project   n Add organization"
 	case "group-detail":
-		actions = "Enter Edit pipeline   r Review launch   d Delete group"
+		actions = "↑ Branch   Enter Edit pipeline   r Review launch   d Delete group"
 	case "approvals":
 		actions = "r Refresh   Ctrl-Y Copy error"
 	}

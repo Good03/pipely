@@ -42,6 +42,7 @@ type dialogActions struct {
 	table   *tview.Table
 	content tview.Primitive
 	actions *tview.Form
+	header  *tview.DropDown
 }
 
 func newDialogActions(content tview.Primitive, actions *tview.Form) *dialogActions {
@@ -75,6 +76,11 @@ func newCenteredDialog(widget tview.Primitive, title string) *centeredDialog {
 			content.SetBorder(false).SetBorderPadding(0, 0, 0, 0)
 			content.SetBackgroundColor(background)
 			content.SetTextColor(tview.Styles.PrimaryTextColor)
+		}
+		if w.header != nil {
+			w.header.SetBackgroundColor(background)
+			w.header.SetLabelColor(tview.Styles.SecondaryTextColor)
+			w.header.SetFieldStyle(plain).SetFocusedStyle(selected).SetListStyles(plain, selected).SetPrefixStyle(plain)
 		}
 		w.actions.SetBackgroundColor(background)
 		w.actions.SetBorderPadding(1, 0, 0, 0)
@@ -147,6 +153,9 @@ func (d *centeredDialog) size() (width, height int) {
 		content := centeredDialog{widget: w.content}
 		width, height = content.size()
 		height += 3
+		if w.header != nil {
+			height += 2
+		}
 	case *tview.Form:
 		labelWidth, fieldWidth := 0, 0
 		for i := 0; i < w.GetFormItemCount(); i++ {

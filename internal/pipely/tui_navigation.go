@@ -13,6 +13,13 @@ import (
 )
 
 func (u *terminalUI) dropdownOpen() bool {
+	if u.body.GetItemCount() > 0 {
+		if dialog, ok := u.body.GetItem(0).(*centeredDialog); ok {
+			if panel, ok := dialog.widget.(*dialogActions); ok && panel.header != nil && panel.header.IsOpen() {
+				return true
+			}
+		}
+	}
 	if u.form == nil {
 		return false
 	}

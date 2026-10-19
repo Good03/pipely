@@ -53,19 +53,20 @@ func TestGroupDialogResolvesDefaultBranchesWithReadsOnly(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/pipelines/1"):
 			fmt.Fprint(w, `{"configuration":{"path":"azure-pipelines.yml","repository":{"id":"repo","type":"azureReposGit"}}}`)
 		case strings.HasSuffix(r.URL.Path, "/refs"):
-			fmt.Fprint(w, `{"value":[{"name":"refs/heads/main"}]}`)
+			fmt.Fprint(w, `{"value":[{"name":"refs/heads/release"},{"name":"refs/heads/main"},{"name":"refs/heads/release"}]}`)
 		case strings.HasSuffix(r.URL.Path, "/items"):
 			http.NotFound(w, r)
 		default:
 			fmt.Fprint(w, `{"defaultBranch":"refs/heads/main"}`)
 		}
 	})
-	u.groupDetail(Group{Name: "services", Project: "services", Members: []RunOptions{{PipelineID: 1}}})
+	u.groupDetail(Group{Name: "services", Org: u.config.Org, Project: "services", Members: []RunOptions{{PipelineID: 1}}})
 	loaded := make(chan struct{})
 	var once sync.Once
 	u.app.SetAfterDrawFunc(func(tcell.Screen) {
 		table := u.content.(*tview.Table)
-		if !u.busy && table.GetCell(1, 0).Text == "Orders" && table.GetCell(1, 1).Text == "main (default)" {
+		panel := u.body.GetItem(0).(*centeredDialog).widget.(*dialogActions)
+		if !u.busy && panel.header.GetOptionCount() == 3 && table.GetCell(1, 0).Text == "Orders" && table.GetCell(1, 1).Text == "main (default)" {
 			once.Do(func() { close(loaded) })
 		}
 	})
@@ -85,6 +86,16 @@ func TestGroupDialogResolvesDefaultBranchesWithReadsOnly(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("group display metadata did not resolve")
 	}
+	u.path = filepath.Join(t.TempDir(), "config.json")
+	u.app.QueueUpdateDraw(func() {
+		sendUI(u, tcell.KeyUp, 0)
+		sendUI(u, tcell.KeyEnter, 0)
+		sendUI(u, tcell.KeyEnd, 0)
+		sendUI(u, tcell.KeyEnter, 0)
+		if len(u.config.Groups) != 1 || u.config.Groups[0].Branch != "release" {
+			t.Error("could not select discovered repository branch")
+		}
+	})
 }
 
 func TestEditedMemberSavesToOriginalGroup(t *testing.T) {
@@ -316,5 +327,104 @@ func TestGroupDialogActionButtonsAndArrowNavigation(t *testing.T) {
 	sendUI(u, tcell.KeyEscape, 0)
 	if u.screen != "groups" {
 		t.Fatal("Escape did not close the group dialog")
+	}
+}
+
+func TestGroupBranchSavedAndAppliedThroughRootLayout(t *testing.T) {
+	for _, size := range [][2]int{{80, 24}, {120, 35}} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			u, screen := simulationUI(t)
+			screen.SetSize(size[0], size[1])
+			u.path = filepath.Join(t.TempDir(), "config.json")
+			g := Group{Name: "services", Org: u.config.Org, Project: u.config.Project, Members: []RunOptions{
+				{PipelineID: 1, Branch: "main", Stages: []string{"Build"}, Parameters: map[string]any{"tests": true}},
+				{PipelineID: 2, Branch: "old"},
+			}}
+			u.config.Groups = []Group{g}
+			u.groupDetail(g)
+			u.app.ForceDraw()
+			sendUI(u, tcell.KeyUp, 0)
+			field, ok := u.app.GetFocus().(*tview.DropDown)
+			if !ok {
+				t.Fatal("Up from first member did not focus branch")
+			}
+			field.AddOption("feature/group-release", nil)
+			sendUI(u, tcell.KeyEnter, 0)
+			if !u.dropdownOpen() {
+				t.Fatal("Enter did not open branch dropdown")
+			}
+			sendUI(u, tcell.KeyEnd, 0)
+			sendUI(u, tcell.KeyEscape, 0)
+			if u.dropdownOpen() || u.screen != "group-detail" {
+				t.Fatal("Escape did not close only the dropdown")
+			}
+			sendUI(u, tcell.KeyEnter, 0)
+			sendUI(u, tcell.KeyEnd, 0)
+			u.app.ForceDraw()
+			x, y, width, height := field.GetRect()
+			if x < 0 || y < 0 || x+width > size[0] || y+height > size[1] {
+				t.Fatal("branch field outside terminal")
+			}
+			sendUI(u, tcell.KeyEnter, 0)
+			table := u.content.(*tview.Table)
+			if u.app.GetFocus() != table {
+				t.Fatal("Enter did not return to members")
+			}
+			for row := 1; row <= 2; row++ {
+				if table.GetCell(row, 1).Text != "feature/group-release" {
+					t.Fatal("shared branch not shown for every member")
+				}
+			}
+			loaded, err := ReadSettings(u.path)
+			if err != nil || loaded.Groups[0].Branch != "feature/group-release" || !reflect.DeepEqual(loaded.Groups[0].Members, g.Members) {
+				t.Fatalf("shared branch did not persist independently of member options: %+v, %v", loaded.Groups, err)
+			}
+			// Member forms expose branch as information, leaving parameters and stages editable.
+			u.editingGroupName = g.Name
+			u.renderRunForm(Pipeline{Id: 1}, RunOptions{}, Metadata{Branch: loaded.Groups[0].Branch, Branches: []string{"main", loaded.Groups[0].Branch}})
+			if _, ok := u.form.GetFormItem(0).(*tview.TextView); !ok {
+				t.Fatal("member still has an independent branch selector")
+			}
+			sendUI(u, tcell.KeyEscape, 0)
+			if u.screen != "group-detail" || u.content.(*tview.Table).GetCell(2, 1).Text != loaded.Groups[0].Branch {
+				t.Fatal("returning from member lost shared branch")
+			}
+			// Updating membership retains the branch after restart.
+			u.config = loaded
+			u.groupNameForm([]RunOptions{{PipelineID: 1}, {PipelineID: 3}}, false)
+			u.form.GetFormItem(0).(*tview.InputField).SetText(g.Name)
+			sendUI(u, tcell.KeyDown, 0)
+			sendUI(u, tcell.KeyEnter, 0)
+			updated, err := ReadSettings(u.path)
+			if err != nil || updated.Groups[0].Branch != loaded.Groups[0].Branch {
+				t.Fatal("membership update lost shared branch")
+			}
+		})
+	}
+}
+
+func TestFailedSharedBranchSaveKeepsGroupAndFocus(t *testing.T) {
+	u, _ := simulationUI(t)
+	root := t.TempDir()
+	blocker := filepath.Join(root, "file")
+	if err := os.WriteFile(blocker, []byte("blocked"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	u.path = filepath.Join(blocker, "config.json")
+	g := Group{Name: "services", Org: u.config.Org, Project: u.config.Project, Branch: "main", Members: []RunOptions{{PipelineID: 1}}}
+	u.config.Groups = []Group{g}
+	u.groupDetail(g)
+	sendUI(u, tcell.KeyUp, 0)
+	field := u.app.GetFocus().(*tview.DropDown)
+	field.AddOption("release", nil)
+	sendUI(u, tcell.KeyEnter, 0)
+	sendUI(u, tcell.KeyEnd, 0)
+	sendUI(u, tcell.KeyEnter, 0)
+	if u.lastError == "" || !reflect.DeepEqual(u.config.Groups[0], g) {
+		t.Fatal("failed branch save changed remembered options")
+	}
+	sendUI(u, tcell.KeyEscape, 0) // Close the error and allow correction in place.
+	if u.app.GetFocus() != field || u.screen != "group-detail" {
+		t.Fatal("failed branch save lost branch field focus")
 	}
 }

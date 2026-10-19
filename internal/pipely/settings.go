@@ -18,6 +18,7 @@ type Group struct {
 	Name    string       `json:"name"`
 	Org     string       `json:"org"`
 	Project string       `json:"project"`
+	Branch  string       `json:"branch,omitempty"`
 	Members []RunOptions `json:"members"`
 }
 
