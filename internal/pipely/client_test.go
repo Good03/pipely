@@ -349,3 +349,52 @@ func TestMetadataHonorsOverallDeadline(t *testing.T) {
 		t.Fatalf("metadata ignored its context deadline: %v", e)
 	}
 }
+
+func TestGroupSharedBranchOverridesMembersForPreviewAndLaunch(t *testing.T) {
+	requests := 0
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Preview   bool `json:"previewRun"`
+			Resources struct {
+				Repositories map[string]struct {
+					Ref string `json:"refName"`
+				} `json:"repositories"`
+			} `json:"resources"`
+			Parameters map[string]any `json:"templateParameters"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if body.Resources.Repositories["self"].Ref != "refs/heads/release" || body.Parameters["tests"] != true {
+			t.Errorf("wrong group run options: %+v", body)
+		}
+		requests++
+		if body.Preview {
+			fmt.Fprint(w, `{"finalYaml":"stages:\n- stage: Build\n- stage: Test\n"}`)
+		} else {
+			fmt.Fprint(w, `{"id":100}`)
+		}
+	})
+	g := Group{Org: "org", Project: "project", Branch: "release", Members: []RunOptions{
+		{PipelineID: 1, Branch: "old", Stages: []string{"Build"}, Parameters: map[string]any{"tests": true}},
+		{PipelineID: 2, Parameters: map[string]any{"tests": true}},
+	}}
+	plans, err := c.PrepareGroup(context.Background(), g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Members[0].Branch != "old" || len(plans[0].Included) != 1 || len(plans[1].Included) != 2 {
+		t.Fatal("shared branch changed saved member settings")
+	}
+	for _, plan := range plans {
+		if plan.Options.Branch != "release" {
+			t.Fatal("plan did not use shared branch")
+		}
+		if _, err := c.Launch(context.Background(), plan); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if requests != 4 {
+		t.Fatalf("got %d preview/launch requests", requests)
+	}
+}

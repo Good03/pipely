@@ -324,6 +324,9 @@ func (c *Client) PrepareGroup(ctx context.Context, g Group) ([]Plan, error) {
 			return nil, fmt.Errorf("duplicate pipeline %d", m.PipelineID)
 		}
 		seen[m.PipelineID] = true
+		if g.Branch != "" {
+			m.Branch = g.Branch
+		}
 		p, e := c.Prepare(ctx, m)
 		if e != nil {
 			return nil, e

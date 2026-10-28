@@ -37,9 +37,14 @@ default selection styles.
 - Inactive buttons use the dialog surface. Only the focused button receives a
   purple fill. Do not add permanent dark rectangles or shortcut text to buttons.
 
-Group details use a member table and a bottom action row: **Run group**, **Delete**.
+Group details use a shared branch dropdown above a member table and a bottom action
+row: **Run group**, **Delete**.
 The table contains pipelines only. Arrow Down from its last member enters the
-actions; Left/Right switches buttons; Up returns to members.
+actions; Left/Right switches buttons; Up returns to members. Up from the first
+member enters the branch dropdown; Enter opens the choices and confirms a branch.
+Escape closes the choices before leaving the group. Branch choices are loaded
+from member repositories, deduplicated, and sorted. Keep saved branch choices
+available while loading or if discovery fails.
 
 Organization/project selection lists contexts only, with **Add organization** in
 the bottom action row. Project pickers list projects only. Do not put actions or
@@ -62,6 +67,12 @@ Back entries into option lists; Escape handles returning to the previous view.
 
 ## Group configuration
 
+- Select the branch once from the dropdown in the group window. Save it before member editing or
+  launch; apply it to every member for metadata, preview, and submission. Persist
+  it across restarts and membership changes without resetting stages or parameters.
+- Member settings show the effective branch as read-only text. Parameters and
+  stages remain specific to each pipeline. Existing groups without a shared
+  branch retain saved member branches or Azure defaults until one is set.
 - Enter on a member opens its settings. Enter in stage selection saves that
   member and returns to the group. Editing a member never queues a pipeline.
 - Run group opens the group review and confirmation before submission.

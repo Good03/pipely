@@ -1162,6 +1162,7 @@ func (u *terminalUI) groupNameForm(members []RunOptions, appendMember bool) {
 		g := Group{Name: strings.TrimSpace(name), Org: u.config.Org, Project: u.config.Project, Members: members}
 		if !appendMember {
 			if old, err := FindGroup(u.config, g.Name); err == nil {
+				g.Branch = old.Branch
 				g.Members = preserveGroupOptions(old.Members, members)
 			}
 		}
